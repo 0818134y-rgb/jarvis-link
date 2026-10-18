@@ -20,39 +20,44 @@ echo [1/4] The environment uses an unsupported Python version. Recreating it wit
 rmdir /s /q .venv
 
 :findpy
+set "TRIED_INSTALL="
+:findpy_again
 set "PY="
 call :trypy 3.12
+if not defined PY call :trypy 3.11
+if not defined PY call :trypy 3.13
+if not defined PY call :trypy 3.10
+if not defined PY call :trypath "%LOCALAPPDATA%\Python\pythoncore-3.12-64\python.exe"
+if not defined PY call :trypath "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PY call :trypath "%ProgramFiles%\Python312\python.exe"
 if defined PY goto mkvenv
-call :trypy 3.11
-if defined PY goto mkvenv
-call :trypy 3.13
-if defined PY goto mkvenv
-call :trypy 3.10
-if defined PY goto mkvenv
-if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"" & goto mkvenv
+if defined TRIED_INSTALL goto nopython
 
-echo [1/4] Python 3.12 was not found. Installing it automatically (one time only)...
+echo [1/4] Python 3.12 was not found. Installing it automatically (one time only, a few minutes)...
+set "TRIED_INSTALL=1"
 where py >nul 2>nul
-if not errorlevel 1 (
-  py install 3.12 <nul
-  call :trypy 3.12
-  if defined PY goto mkvenv
-)
-where winget >nul 2>nul
-if errorlevel 1 goto nopython
-winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements
-if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"" & goto mkvenv
+if not errorlevel 1 py install 3.12
 call :trypy 3.12
 if defined PY goto mkvenv
-goto nopython
+where winget >nul 2>nul
+if not errorlevel 1 winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements
+goto findpy_again
 
 :mkvenv
 echo [1/4] Creating Python environment with %PY% ...
 %PY% -m venv .venv
-if errorlevel 1 goto nopython
+if exist ".venv\Scripts\python.exe" goto deps
+echo       Could not create the environment with %PY%.
+if exist .venv rmdir /s /q .venv
+if defined TRIED_INSTALL goto nopython
+set "TRIED_INSTALL=1"
+where py >nul 2>nul
+if not errorlevel 1 py install 3.12
+goto findpy_again
 
 :deps
 rem ---------- 2. Packages (reinstall only when requirements.txt changed) ----------
+if not exist ".venv\Scripts\python.exe" goto nopython
 fc /b requirements.txt .venv\installed-requirements.txt >nul 2>nul
 if not errorlevel 1 goto config
 echo [2/4] Installing packages...
@@ -93,10 +98,19 @@ exit /b 0
 
 rem ---------- helpers ----------
 :trypy
+rem Check the real version from the output (the py command may not report errors by exit code)
+set "PYOUT="
 where py >nul 2>nul
 if errorlevel 1 exit /b 0
-py -%1 -c "import sys; sys.exit(0 if sys.version_info[:2] == tuple(map(int, '%1'.split('.'))) else 1)" <nul >nul 2>nul
-if not errorlevel 1 set "PY=py -%1"
+for /f "delims=" %%v in ('py -%1 -c "import sys;print(f'PYOK{sys.version_info[0]}.{sys.version_info[1]}')" 2^>nul ^<nul') do set "PYOUT=%%v"
+if "%PYOUT%"=="PYOK%1" set "PY=py -%1"
+exit /b 0
+
+:trypath
+if not exist "%~1" exit /b 0
+set "PYOUT="
+for /f "delims=" %%v in ('""%~1" -c "import sys;print(f'PYOK{sys.version_info[0]}.{sys.version_info[1]}')"" 2^>nul') do set "PYOUT=%%v"
+if "%PYOUT:~0,4%"=="PYOK" set "PY="%~1""
 exit /b 0
 
 :voicevox_up
