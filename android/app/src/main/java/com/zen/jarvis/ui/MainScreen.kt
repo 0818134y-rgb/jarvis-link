@@ -43,7 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -87,7 +86,6 @@ class UiActions(
     val reload: () -> Unit,
     val stopService: () -> Unit,
     val startService: () -> Unit,
-    val pickModel: () -> Unit,
     val openAccessibility: () -> Unit,
     val openBattery: () -> Unit,
 )
@@ -97,8 +95,6 @@ fun MainScreen(
     actions: UiActions,
     accessibilityOn: Boolean,
     serviceOn: Boolean,
-    importProgress: String?,
-    modelName: String,
 ) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Cyan, background = Bg, surface = Panel, onSurface = TextMain)) {
         Surface(color = Bg, modifier = Modifier.fillMaxSize()) {
@@ -106,7 +102,6 @@ fun MainScreen(
             val log by Jarvis.log.collectAsState()
             val peers by Jarvis.directory.peers.collectAsState()
             var showSettings by remember { mutableStateOf(false) }
-            var claudeOn by remember { mutableStateOf(Jarvis.prefs.claudeApiKey.isNotBlank()) }
 
             Column(
                 Modifier
@@ -127,9 +122,7 @@ fun MainScreen(
                 }
 
                 AnimatedVisibility(showSettings) {
-                    SettingsPanel(actions, accessibilityOn, serviceOn, importProgress, modelName) {
-                        claudeOn = Jarvis.prefs.claudeApiKey.isNotBlank()
-                    }
+                    SettingsPanel(actions, accessibilityOn, serviceOn)
                 }
 
                 Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
@@ -145,14 +138,7 @@ fun MainScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Chip(
-                        when {
-                            claudeOn -> "Claude ✓"
-                            modelName.isNotEmpty() -> "端末AI ✓"
-                            else -> "AI 未設定"
-                        },
-                        claudeOn || modelName.isNotEmpty()
-                    )
+                    Chip("自作AI ✓", true)
                     Chip(if (accessibilityOn) "画面操作 ✓" else "画面操作 OFF", accessibilityOn)
                     Chip("連携 ${peers.size}台", peers.isNotEmpty())
                 }
@@ -263,14 +249,8 @@ private fun SettingsPanel(
     actions: UiActions,
     accessibilityOn: Boolean,
     serviceOn: Boolean,
-    importProgress: String?,
-    modelName: String,
-    onBrainChanged: () -> Unit,
 ) {
     val prefs = Jarvis.prefs
-    var apiKey by remember { mutableStateOf(prefs.claudeApiKey) }
-    var claudeModel by remember { mutableStateOf(prefs.claudeModel) }
-    var showKey by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf(prefs.deviceName) }
     var token by remember { mutableStateOf(prefs.token) }
     var port by remember { mutableStateOf(prefs.port.toString()) }
@@ -291,36 +271,6 @@ private fun SettingsPanel(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        SectionTitle("AI (Claude)")
-        Text("APIキーを入れると、会話・質問・Web検索・端末操作をClaudeが判断します。キーは Claude Console (platform.claude.com) で発行します(Claudeアプリの有料プランとは別の従量課金)。",
-            color = TextSub, fontSize = 12.sp)
-        OutlinedTextField(
-            apiKey, { apiKey = it }, label = { Text("Claude APIキー (sk-ant-...)") }, singleLine = true,
-            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = { Text(if (showKey) "隠す" else "表示", color = Cyan, fontSize = 12.sp,
-                modifier = Modifier.clickable { showKey = !showKey }.padding(8.dp)) },
-            modifier = Modifier.fillMaxWidth()
-        )
-        listOf(
-            "claude-sonnet-5-5" to "Sonnet 5.5 (おすすめ・賢くて速い)",
-            "claude-haiku-5-5" to "Haiku 5.5 (最速・安い)",
-            "claude-opus-5-5" to "Opus 5.5 (最も賢い・少し遅い)",
-        ).forEach { (id, label) ->
-            Row(
-                Modifier.fillMaxWidth().clickable { claudeModel = id }.padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(selected = claudeModel == id, onClick = { claudeModel = id })
-                Text(label, color = TextMain, fontSize = 14.sp)
-            }
-        }
-        Button(onClick = {
-            prefs.claudeApiKey = apiKey
-            prefs.claudeModel = claudeModel
-            onBrainChanged()
-            Jarvis.log("system", if (apiKey.isBlank()) "Claudeを使わない設定にしました" else "Claude (${claudeModel}) を使います")
-        }, modifier = Modifier.fillMaxWidth()) { Text("AI設定を保存") }
-
         SectionTitle("端末連携")
         OutlinedTextField(name, { name = it }, label = { Text("この端末の名前") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(
@@ -352,19 +302,6 @@ private fun SettingsPanel(
             prefs.continuous = it
             actions.startService()
             actions.reload()
-        }
-
-        SectionTitle("端末内の言語モデル")
-        Text(
-            when {
-                importProgress != null -> importProgress
-                modelName.isNotEmpty() -> "読み込み済み: $modelName"
-                else -> "未設定 (定型の指示のみ対応)。Gemma の .task ファイルを選んでください"
-            },
-            color = TextSub, fontSize = 12.sp
-        )
-        OutlinedButton(onClick = actions.pickModel, enabled = importProgress == null, modifier = Modifier.fillMaxWidth()) {
-            Text("モデルファイル(.task)を選ぶ")
         }
 
         SectionTitle("権限")

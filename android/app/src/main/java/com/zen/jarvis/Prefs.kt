@@ -36,10 +36,6 @@ class Prefs(context: Context) {
     val peerList: List<String>
         get() = peers.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }
 
-    var modelPath: String
-        get() = sp.getString("modelPath", "") ?: ""
-        set(v) = sp.edit().putString("modelPath", v).apply()
-
     /** 常時ウェイクワード待ち受け */
     var continuous: Boolean
         get() = sp.getBoolean("continuous", false)
@@ -48,15 +44,6 @@ class Prefs(context: Context) {
     var allowRemoteDangerous: Boolean
         get() = sp.getBoolean("allowRemoteDangerous", false)
         set(v) = sp.edit().putBoolean("allowRemoteDangerous", v).apply()
-
-    /** Claude API キー (console で発行)。空なら端末内ルール/LLMで動く。 */
-    var claudeApiKey: String
-        get() = sp.getString("claudeApiKey", "") ?: ""
-        set(v) = sp.edit().putString("claudeApiKey", v.trim()).apply()
-
-    var claudeModel: String
-        get() = sp.getString("claudeModel", "claude-sonnet-5-5") ?: "claude-sonnet-5-5"
-        set(v) = sp.edit().putString("claudeModel", v).apply()
 
     var discovery: Boolean
         get() = sp.getBoolean("discovery", true)

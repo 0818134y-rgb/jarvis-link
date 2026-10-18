@@ -91,7 +91,7 @@ class JarvisService : Service() {
         acquireLocks()
         Jarvis.tools.confirm = { desc -> confirmByVoice(desc) }
         Jarvis.tools.allowRemoteDangerous = { Jarvis.prefs.allowRemoteDangerous }
-        Jarvis.agent.onToolCall = { name, args -> Jarvis.log("tool", "$name $args") }
+        Jarvis.brain.onToolCall = { name, args -> Jarvis.log("tool", "$name $args") }
         scope.launch(Dispatchers.IO) { startLink() }
     }
 
@@ -146,7 +146,7 @@ class JarvisService : Service() {
     private suspend fun runCommand(text: String) {
         Jarvis.log("you", text)
         Jarvis.setStatus("考え中")
-        val reply = withContext(Dispatchers.Default) { Jarvis.agent.handle(text, Origin.Local) }
+        val reply = withContext(Dispatchers.Default) { Jarvis.brain.handle(text, Origin.Local) }
         Jarvis.log("jarvis", reply)
         Jarvis.setStatus("話しています")
         Jarvis.tts.speak(reply)
@@ -226,7 +226,7 @@ class JarvisService : Service() {
             "command" -> {
                 val text = req.optString("text")
                 Jarvis.log(peer, text)
-                val reply = withContext(Dispatchers.Default) { Jarvis.agent.handle(text, Origin.Remote(peer)) }
+                val reply = withContext(Dispatchers.Default) { Jarvis.brain.handle(text, Origin.Remote(peer)) }
                 Jarvis.log("jarvis → $peer", reply)
                 out.put("text", reply)
             }

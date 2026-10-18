@@ -2,9 +2,7 @@ package com.zen.jarvis
 
 import android.app.Application
 import android.content.Context
-import com.zen.jarvis.agent.Agent
-import com.zen.jarvis.agent.ClaudeClient
-import com.zen.jarvis.agent.LocalLlm
+import com.zen.jarvis.brain.Brain
 import com.zen.jarvis.link.DeviceDirectory
 import com.zen.jarvis.link.LinkClient
 import com.zen.jarvis.tools.ToolRegistry
@@ -41,11 +39,7 @@ object Jarvis {
         private set
     lateinit var tools: ToolRegistry
         private set
-    lateinit var llm: LocalLlm
-        private set
-    lateinit var agent: Agent
-        private set
-    lateinit var claude: ClaudeClient
+    lateinit var brain: Brain
         private set
     lateinit var directory: DeviceDirectory
         private set
@@ -73,7 +67,6 @@ object Jarvis {
         prefs = Prefs(app)
         tts = SpeechOutput(app)
         stt = SpeechInput(app)
-        llm = LocalLlm(app)
         client = LinkClient(prefs)
         directory = DeviceDirectory(prefs, client)
         tools = ToolRegistry().apply {
@@ -81,17 +74,8 @@ object Jarvis {
             registerScreenTools()
             registerRemoteTools(app)
         }
-        claude = ClaudeClient(prefs)
-        agent = Agent(tools, llm, claude)
-
-        val model = prefs.modelPath
-        if (model.isNotBlank()) {
-            scope.launch {
-                setStatus("モデル読み込み中")
-                llm.load(model).onFailure { log("system", "モデルを読み込めません: ${it.message}") }
-                setStatus("待機中")
-            }
-        }
+        brain = Brain(app, tools)
+        scope.launch { brain.warmUp() }
     }
 
     fun setStatus(s: String) {

@@ -37,10 +37,4 @@ class RulesTest {
     @Test fun freeTalkGoesToLlm() {
         assertNull(tool("量子コンピューターについて教えて"))
     }
-
-    @Test fun extractJson() {
-        val j = Agent.extractJson("はい ```json\n{\"tool\": \"open_app\", \"args\": {\"name\": \"YouTube\"}}\n```")
-        assertEquals("open_app", j!!.getString("tool"))
-        assertNull(Agent.extractJson("JSONではない返事"))
-    }
 }

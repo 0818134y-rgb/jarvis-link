@@ -12,8 +12,8 @@ android {
         applicationId = "com.zen.jarvis"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
         // 現行のAndroidスマホ(64bit ARM)だけに絞ってAPKを小さくする
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -63,8 +63,6 @@ dependencies {
     // 非同期
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    // 端末内LLM (Gemma等の .task モデルを実行)
-    implementation("com.google.mediapipe:tasks-genai:0.10.27")
 
     // 端末間連携: サーバー(Java-WebSocket) / クライアント(OkHttp)
     implementation("org.java-websocket:Java-WebSocket:1.5.7")
