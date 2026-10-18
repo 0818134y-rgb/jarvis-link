@@ -48,10 +48,6 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
-    androidResources {
-        // 音声モデルは圧縮しない (展開を速くする)
-        noCompress += listOf("mdl", "fst", "int", "conf", "mat", "dubm", "ie", "stats", "txt")
-    }
 }
 
 dependencies {
