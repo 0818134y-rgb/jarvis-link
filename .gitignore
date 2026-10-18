@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+.venv/
+pc/config.yaml
+pc/.jarvis_token
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml

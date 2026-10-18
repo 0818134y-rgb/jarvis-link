@@ -1,0 +1,27 @@
+# 音声
+faster-whisper>=1.0.3
+sounddevice>=0.4.6
+numpy>=1.26
+soundfile>=0.12
+keyboard>=0.13.5
+pyttsx3>=2.90          # VOICEVOXが起動していない時のフォールバック読み上げ
+
+# LLM / HTTP
+requests>=2.31
+
+# 連携
+websockets>=15.0      # proxy=None (LAN直結) に15以上が必要
+zeroconf>=0.132
+
+# PC操作
+pyautogui>=0.9.54
+pygetwindow>=0.0.9
+pywinauto>=0.6.8
+pyperclip>=1.8.2
+psutil>=5.9
+send2trash>=1.8
+mss>=9.0
+Pillow>=10.0
+
+# 設定
+PyYAML>=6.0

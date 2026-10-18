@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="accessibility_label">JARVIS 端末操作</string>
+    <string name="accessibility_description">音声の指示に従って、画面上のボタンのタップ、スクロール、文字入力、戻る・ホーム操作、画面の読み取りを行います。読み取った内容は端末内でのみ処理され、あなたが認証した連携端末以外には送られません。</string>
+</resources>
