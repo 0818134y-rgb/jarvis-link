@@ -177,4 +177,135 @@ class JarvisAccessibility : AccessibilityService() {
     }
 
     fun global(action: Int): Boolean = performGlobalAction(action)
+
+    // ---------- 番号で操作 ----------
+
+    data class Item(val label: String, val node: AccessibilityNodeInfo)
+
+    /** 最後に読み上げた項目一覧 (「3番をタップ」で使う) */
+    @Volatile
+    var lastItems: List<Item> = emptyList()
+        private set
+
+    /** 画面上の押せる項目を上から順に集めて番号を振る。 */
+    fun listItems(max: Int = 20): List<Item> {
+        val found = mutableListOf<Pair<Rect, Item>>()
+        val seen = HashSet<String>()
+        for (root in roots()) {
+            walk(root) { n ->
+                if (n.isVisibleToUser && (n.isClickable || n.isCheckable || n.isEditable)) {
+                    val label = labelOf(n)
+                    if (label.isNotEmpty() && seen.add(label)) {
+                        val r = Rect().also { n.getBoundsInScreen(it) }
+                        if (r.width() > 0 && r.height() > 0) found += r to Item(label, n)
+                    }
+                }
+                true
+            }
+        }
+        lastItems = found.sortedWith(compareBy({ it.first.top / 40 }, { it.first.left })).map { it.second }.take(max)
+        return lastItems
+    }
+
+    /** ボタン自体に文字がなければ、中の文字や説明文を拾う。 */
+    private fun labelOf(n: AccessibilityNodeInfo): String {
+        val own = (n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()
+        if (own.isNotEmpty()) return own.take(30)
+        var child = ""
+        walk(n) { c ->
+            if (child.isEmpty()) child = (c.text ?: c.contentDescription)?.toString()?.trim().orEmpty()
+            child.isEmpty()
+        }
+        if (child.isNotEmpty()) return child.take(30)
+        return if (n.isEditable) "入力欄" else ""
+    }
+
+    suspend fun tapItem(index: Int): Item? {
+        val item = lastItems.getOrNull(index - 1) ?: return null
+        if (item.node.isEditable) {
+            item.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            item.node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            return item
+        }
+        if (item.node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return item
+        val r = Rect().also { item.node.getBoundsInScreen(it) }
+        return if (tapAt(r.exactCenterX(), r.exactCenterY())) item else null
+    }
+
+    // ---------- 長押し・スワイプ ----------
+
+    suspend fun longPressText(query: String): Boolean {
+        val q = query.trim().lowercase()
+        var target: AccessibilityNodeInfo? = null
+        for (root in roots()) {
+            walk(root) { n ->
+                if (n.isVisibleToUser && labelOf(n).lowercase().contains(q)) target = n
+                target == null
+            }
+            if (target != null) break
+        }
+        val t = target ?: return false
+        var node: AccessibilityNodeInfo? = t
+        while (node != null) {
+            if (node.isLongClickable && node.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) return true
+            node = node.parent
+        }
+        val r = Rect().also { t.getBoundsInScreen(it) }
+        val path = Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
+        return dispatch(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 900)).build())
+    }
+
+    /** left = 次へ (右から左へ指を動かす) / right = 前へ */
+    suspend fun swipeHorizontal(left: Boolean): Boolean {
+        val dm = resources.displayMetrics
+        val y = dm.heightPixels * 0.5f
+        val (x1, x2) = if (left) dm.widthPixels * 0.85f to dm.widthPixels * 0.15f else dm.widthPixels * 0.15f to dm.widthPixels * 0.85f
+        return swipe(x1, y, x2, y, 250)
+    }
+
+    // ---------- 文字列で探してタップ (候補のどれか) ----------
+
+    suspend fun tapAnyOf(labels: List<String>): Boolean {
+        for (l in labels) if (tapText(l)) return true
+        return false
+    }
+
+    // ---------- ブラウザ ----------
+
+    /** 表示中のブラウザのURL。アドレスバーのビューを探して読む。 */
+    fun currentUrl(): String? {
+        val ids = listOf("url_bar", "location_bar_edit_text", "mozac_browser_toolbar_url_view", "url_field", "url", "address_bar")
+        var url: String? = null
+        for (root in roots()) {
+            walk(root) { n ->
+                val id = n.viewIdResourceName?.substringAfterLast('/') ?: ""
+                if (id in ids && !n.text.isNullOrBlank()) url = n.text.toString()
+                url == null
+            }
+            if (url != null) break
+        }
+        val u = url?.trim() ?: return null
+        if (u.contains(' ') || !u.contains('.')) return null
+        return if (u.startsWith("http")) u else "https://$u"
+    }
+
+    // ---------- 編集操作 ----------
+
+    fun editAction(action: String): Boolean {
+        val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+        return when (action) {
+            "copy" -> focused.performAction(AccessibilityNodeInfo.ACTION_COPY)
+            "paste" -> focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            "cut" -> focused.performAction(AccessibilityNodeInfo.ACTION_CUT)
+            "select_all" -> {
+                val len = focused.text?.length ?: 0
+                focused.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, len)
+                })
+            }
+            "enter" -> pressEnter()
+            else -> false
+        }
+    }
 }

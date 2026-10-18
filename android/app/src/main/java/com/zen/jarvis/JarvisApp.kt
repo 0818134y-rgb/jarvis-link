@@ -8,6 +8,7 @@ import com.zen.jarvis.link.LinkClient
 import com.zen.jarvis.tools.ToolRegistry
 import com.zen.jarvis.tools.registerPhoneTools
 import com.zen.jarvis.tools.registerRemoteTools
+import com.zen.jarvis.tools.registerAppTools
 import com.zen.jarvis.tools.registerScreenTools
 import com.zen.jarvis.voice.SpeechInput
 import com.zen.jarvis.voice.SpeechOutput
@@ -73,6 +74,7 @@ object Jarvis {
             registerPhoneTools(app)
             registerScreenTools()
             registerRemoteTools(app)
+            registerAppTools(app)
         }
         brain = Brain(app, tools)
         scope.launch { brain.warmUp() }

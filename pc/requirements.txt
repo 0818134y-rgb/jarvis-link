@@ -6,7 +6,7 @@ soundfile>=0.12
 keyboard>=0.13.5
 pyttsx3>=2.90          # VOICEVOXが起動していない時のフォールバック読み上げ
 
-# LLM / HTTP
+# 自作AIエンジン / HTTP
 requests>=2.31
 
 # 連携
@@ -21,7 +21,6 @@ pyperclip>=1.8.2
 psutil>=5.9
 send2trash>=1.8
 mss>=9.0
-Pillow>=10.0
 
 # 設定
 PyYAML>=6.0

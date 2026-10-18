@@ -40,6 +40,15 @@ fun ToolRegistry.registerRemoteTools(ctx: Context) {
         if (res.optBoolean("ok")) "${device}で読み上げました。" else "失敗: ${res.optString("text")}"
     }
 
+    add("share_page", "スマホのブラウザで開いているページを他の端末(PC等)のブラウザで開く", Param("device", "端末名または種類")) { a ->
+        val url = com.zen.jarvis.access.JarvisAccessibility.instance?.currentUrl()
+            ?: return@add "ブラウザで開いているページが見つかりませんでした(画面操作の許可とブラウザ表示が必要です)。"
+        val device = a.getString("device")
+        val res = Jarvis.client.request(peerOf(device),
+            JSONObject().put("type", "tool").put("name", "open_url").put("args", JSONObject().put("url", url)), 20_000)
+        if (res.optBoolean("ok")) "${device}でこのページを開きました。" else "失敗: ${res.optString("text")}"
+    }
+
     add("send_clipboard", "この端末のクリップボードを他の端末へ送る", Param("device", "端末名または種類")) { a ->
         val cb = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val text = cb.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()

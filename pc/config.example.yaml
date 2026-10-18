@@ -10,6 +10,7 @@ link:
   discovery: true               # 同一Wi-Fi内の自動発見 (mDNS)
   peers: []                     # 外出先用 例: ["100.101.102.103:8765"] (TailscaleのスマホIP)
   allow_remote_dangerous: false # true で他端末からの画面操作・シェル等も許可
+  speak_notifications: false    # スマホから転送された通知を読み上げる (表示は常にする)
 
 asr:
   model: small                  # tiny / base / small / medium / large-v3
@@ -18,12 +19,6 @@ asr:
   wake_words: [ジャーヴィス, ジャービス, じゃーびす, jarvis]
   hotkey: ctrl+alt+j            # 押してから話すと、ウェイクワードなしで受け付け
   follow_up_seconds: 6          # 返答後この秒数はウェイクワードなしで続けて話せる
-
-llm:
-  host: http://localhost:11434
-  model: qwen2.5:7b
-  vision_model: qwen2.5vl:7b    # 画面を見て操作する時に使用 (ollama pull qwen2.5vl:7b)
-  history_turns: 8
 
 tts:
   voicevox_host: http://localhost:50021

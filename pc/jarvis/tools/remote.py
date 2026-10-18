@@ -5,6 +5,7 @@ from . import registry
 
 _link = None
 _speaker = None
+phone_notifications: list[dict] = []   # スマホから転送された通知 (新しい順)
 
 
 def configure(link, speaker) -> None:
@@ -75,3 +76,29 @@ def get_device_clipboard(device: str) -> str:
         return f"失敗: {res.get('text')}"
     pyperclip.copy(res.get("text", ""))
     return "取り込みました。"
+
+
+def call_phone_tool(name: str, args: dict | None = None, device: str = "phone", timeout: float = 60) -> str:
+    """スマホ側のツールを直接実行する。"""
+    res = _need_link().request(device, {"type": "tool", "name": name, "args": args or {}}, timeout=timeout)
+    return res.get("text", "") if res.get("ok") else f"スマホで実行できませんでした: {res.get('text', '')}"
+
+
+@registry.add("share_page", "PCのブラウザで開いているページを他の端末(スマホ等)で開く", {
+    "device": {"type": "string", "description": "端末名または種類"},
+}, ["device"])
+def share_page(device: str = "phone") -> str:
+    from .browser import current_url
+    url = current_url()
+    if not url:
+        return "ブラウザで開いているページが見つかりませんでした。"
+    out = call_phone_tool("open_url", {"url": url}, device=device, timeout=20)
+    return "スマホでこのページを開きました。" if not out.startswith("スマホで実行できません") else out
+
+
+@registry.add("read_phone_notifications", "スマホから転送された最近の通知を読み上げる")
+def read_phone_notifications() -> str:
+    if not phone_notifications:
+        return "スマホからの通知はまだ届いていません。スマホのJARVISで「スマホの通知をPCに転送」をオンにすると届きます。"
+    items = phone_notifications[:5]
+    return f"スマホの通知は{len(items)}件です。" + "。".join(f"{n['app']}、{n['title']} {n['text']}".strip() for n in items) + "。"

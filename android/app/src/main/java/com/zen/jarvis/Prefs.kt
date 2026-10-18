@@ -45,6 +45,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("allowRemoteDangerous", false)
         set(v) = sp.edit().putBoolean("allowRemoteDangerous", v).apply()
 
+    /** スマホの通知をPCへ転送する */
+    var forwardNotifications: Boolean
+        get() = sp.getBoolean("forwardNotifications", false)
+        set(v) = sp.edit().putBoolean("forwardNotifications", v).apply()
+
     var discovery: Boolean
         get() = sp.getBoolean("discovery", true)
         set(v) = sp.edit().putBoolean("discovery", v).apply()

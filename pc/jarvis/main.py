@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 
-from .agent import Agent
+from .brain import Brain
 from .config import load_config
 from .link import Link, PLATFORM
 from .tools import load_all
@@ -33,10 +33,11 @@ def build(cfg: dict, use_link: bool, text_mode: bool):
     speaker = Speaker(cfg, listener)
 
     holder: dict = {}
+    notify_speak = bool(cfg.get("link", {}).get("speak_notifications", False))
 
     def dispatch(req: dict, peer: str) -> dict:
         t = req.get("type")
-        agent: Agent = holder["agent"]
+        brain: Brain = holder["brain"]
         registry = holder["registry"]
         if t == "ping":
             return {"ok": True, "text": "pong"}
@@ -47,13 +48,13 @@ def build(cfg: dict, use_link: bool, text_mode: bool):
         if t == "command":
             text = str(req.get("text", ""))
             print(f"[{peer}] {text}")
-            reply = agent.run(text, origin=f"remote:{peer}")
+            reply = brain.handle(text, origin=f"remote:{peer}")
             print(f"[-> {peer}] {reply}")
             return {"ok": True, "text": reply}
         if t == "tool":
             out = registry.call(str(req.get("name", "")), req.get("args") or {},
                                 origin=f"remote:{peer}",
-                                allow_remote_dangerous=agent.allow_remote_dangerous)
+                                allow_remote_dangerous=brain.allow_remote_dangerous)
             return {"ok": not out.startswith(("エラー", "安全のため", "ツール ")), "text": out}
         if t == "speak":
             speaker.say(str(req.get("text", "")))
@@ -63,13 +64,24 @@ def build(cfg: dict, use_link: bool, text_mode: bool):
             pyperclip.copy(str(req.get("text", "")))
             print(f"[{peer}] clipboard received")
             return {"ok": True, "text": "クリップボードに設定しました"}
+        if t == "notify":
+            from .tools.remote import phone_notifications
+            from .tools.timers import show_toast
+            n = {"app": str(req.get("app", "")), "title": str(req.get("title", "")), "text": str(req.get("text", ""))}
+            phone_notifications.insert(0, n)
+            del phone_notifications[30:]
+            print(f"[{peer} 通知] {n['app']}: {n['title']} {n['text']}")
+            show_toast(f"📱 {n['app']}", f"{n['title']} {n['text']}".strip())
+            if notify_speak:
+                speaker.say(f"スマホに{n['app']}から通知です。{n['title']}")
+            return {"ok": True, "text": "通知を受け取りました"}
         return {"ok": False, "text": f"未対応のリクエスト: {t}"}
 
     link = Link(cfg, dispatch) if use_link else None
     registry = load_all(cfg, link, speaker)
-    agent = Agent(cfg, registry, link)
-    holder.update(agent=agent, registry=registry)
-    return listener, speaker, link, agent
+    brain = Brain(cfg, registry, link)
+    holder.update(brain=brain, registry=registry)
+    return listener, speaker, link, brain
 
 
 def main() -> None:
@@ -84,7 +96,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args.config)
-    listener, speaker, link, agent = build(cfg, not args.no_link, args.text)
+    listener, speaker, link, brain = build(cfg, not args.no_link, args.text)
     if link:
         link.start()
 
@@ -100,8 +112,8 @@ def main() -> None:
             except (EOFError, KeyboardInterrupt):
                 break
             if text:
-                print("JARVIS>", agent.run(text, confirm=confirm,
-                                           on_tool=lambda n, a: print(f"  ...{n} {a}")))
+                print("JARVIS>", brain.handle(text, confirm=confirm,
+                                              on_tool=lambda n, a: print(f"  ...{n} {a}")))
         if link:
             link.stop()
         return
@@ -161,8 +173,8 @@ def main() -> None:
                 print(f"YOU> {cmd}")
                 if not cmd:
                     continue
-            reply = agent.run(cmd, confirm=confirm,
-                              on_tool=lambda n, a: print(f"  ...{n} {a}"))
+            reply = brain.handle(cmd, confirm=confirm,
+                                 on_tool=lambda n, a: print(f"  ...{n} {a}"))
             speaker.say(reply)
             follow_until = time.time() + follow_sec
     except KeyboardInterrupt:

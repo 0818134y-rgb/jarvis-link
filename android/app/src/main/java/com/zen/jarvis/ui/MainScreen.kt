@@ -88,6 +88,7 @@ class UiActions(
     val startService: () -> Unit,
     val openAccessibility: () -> Unit,
     val openBattery: () -> Unit,
+    val openNotificationAccess: () -> Unit,
 )
 
 @Composable
@@ -258,6 +259,7 @@ private fun SettingsPanel(
     var continuous by remember { mutableStateOf(prefs.continuous) }
     var discovery by remember { mutableStateOf(prefs.discovery) }
     var dangerous by remember { mutableStateOf(prefs.allowRemoteDangerous) }
+    var forward by remember { mutableStateOf(prefs.forwardNotifications) }
     var showToken by remember { mutableStateOf(false) }
 
     Column(
@@ -286,6 +288,11 @@ private fun SettingsPanel(
             minLines = 2, modifier = Modifier.fillMaxWidth())
         ToggleRow("同じWi-Fiの端末を自動で探す", discovery) { discovery = it }
         ToggleRow("他端末からの画面操作・発信を許可", dangerous) { dangerous = it }
+        ToggleRow("スマホの通知をPCに転送", forward) {
+            forward = it
+            prefs.forwardNotifications = it
+            if (it) actions.openNotificationAccess()
+        }
         Button(onClick = {
             prefs.deviceName = name
             prefs.token = token
@@ -307,6 +314,9 @@ private fun SettingsPanel(
         SectionTitle("権限")
         OutlinedButton(onClick = actions.openAccessibility, modifier = Modifier.fillMaxWidth()) {
             Text(if (accessibilityOn) "ユーザー補助: オン" else "ユーザー補助を開いて「JARVIS 端末操作」をオン")
+        }
+        OutlinedButton(onClick = actions.openNotificationAccess, modifier = Modifier.fillMaxWidth()) {
+            Text("通知へのアクセスを許可 (通知の読み上げ・PC転送)")
         }
         OutlinedButton(onClick = actions.openBattery, modifier = Modifier.fillMaxWidth()) {
             Text("電池の最適化を解除 (画面オフでも連携を受ける)")

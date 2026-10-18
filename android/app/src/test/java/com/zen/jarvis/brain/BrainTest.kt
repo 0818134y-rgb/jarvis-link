@@ -57,6 +57,14 @@ class BrainTest {
         assertEquals(Weather.When.WEEKEND, Weather.whenOf("週末の天気"))
     }
 
+    @Test fun sites() {
+        val site = com.zen.jarvis.tools.Sites.find("Amazonでイヤホンを探して")!!
+        assertEquals("Amazon", site.name)
+        assertEquals("イヤホン", com.zen.jarvis.tools.Sites.queryOf("Amazonでイヤホンを探して", site))
+        assertEquals("猫動画", com.zen.jarvis.tools.Sites.queryOf("ユーチューブで猫動画を再生して", com.zen.jarvis.tools.Sites.find("ユーチューブ")!!))
+        assertTrue(com.zen.jarvis.tools.Sites.looksLikeDomain("github.com"))
+    }
+
     @Test fun decide() {
         assertTrue(Talk.decide("サイコロ振って").contains("出ました"))
         assertTrue(Talk.decide("コイン投げて").contains("です"))

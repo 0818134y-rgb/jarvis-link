@@ -3,13 +3,27 @@ name: Build Android APK
 on:
   push:
     branches: [main]
-    paths: ["android/**", ".github/workflows/android-apk.yml"]
+    paths: ["android/**", "pc/**", "brain/**", ".github/workflows/android-apk.yml"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  pc-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PC版 自作AIエンジンのテスト
+        working-directory: pc
+        run: |
+          pip install numpy requests pyyaml "websockets>=15" zeroconf
+          python tests/test_brain.py
+          python tests/test_link.py
+
   apk:
     runs-on: ubuntu-24.04   # Android SDK がプリインストール済み
     steps:

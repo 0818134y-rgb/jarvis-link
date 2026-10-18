@@ -25,6 +25,7 @@ from dataset import build  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "android/app/src/main/assets/brain"
 TEST_RES = ROOT / "android/app/src/test/resources"
+PC_MODEL = ROOT / "pc/jarvis/brain_model"   # PC版も同じモデルを使う
 
 NGRAM_MIN, NGRAM_MAX = 1, 3
 REMOVE_CHARS = set(" \t\n\r\u3000、。,.!！?？・「」『』\"'()（）〜~…ー-")  # 長音記号も揺れが大きいので除去
@@ -140,18 +141,24 @@ def main():
         f.write(Wt.tobytes())
         f.write(b.astype("<f4").tobytes())
     print(f"wrote {ASSETS} ({(ASSETS / 'weights.bin').stat().st_size // 1024} KB weights)")
+    PC_MODEL.mkdir(parents=True, exist_ok=True)
+    for name in ("model.json", "weights.bin"):
+        (PC_MODEL / name).write_bytes((ASSETS / name).read_bytes())
 
     # Kotlin 側との一致テスト用に、いろいろな文の予測結果を保存
     probes = ["ライトつけて", "ジャーヴィス、今何時？", "明日の大阪の天気は", "富士山って何", "3たす5は",
               "聞こえる", "今何ができんの", "5分のタイマー", "YouTubeを開いて", "ニュースを教えて",
               "疲れた", "1ドルは何円", "クリスマスまであと何日", "ありがとう", "東京駅までナビして",
-              "スクショ撮って", "私の名前はゼンです", "メモを読んで", "量子力学について教えて", "天気どう？"]
+              "スクショ撮って", "私の名前はゼンです", "メモを読んで", "量子力学について教えて", "天気どう？",
+              "新しいタブを開いて", "3番をタップして", "このページをパソコンで開いて", "スマホを探して",
+              "Amazonでイヤホンを探して", "左にスワイプ", "保存して", "見積書というファイルを探して"]
     X_p = featurize(probes, vocab)
     P = softmax(X_p @ W + b)
     cases = [{"text": t, "intent": intents[int(P[k].argmax())], "prob": round(float(P[k].max()), 4),
               "normalized": normalize(t)} for k, t in enumerate(probes)]
     TEST_RES.mkdir(parents=True, exist_ok=True)
     (TEST_RES / "brain_cases.json").write_text(json.dumps(cases, ensure_ascii=False, indent=1), encoding="utf-8")
+    (PC_MODEL / "brain_cases.json").write_text(json.dumps(cases, ensure_ascii=False, indent=1), encoding="utf-8")
     for c in cases:
         print(f"  {c['text']:22s} -> {c['intent']:15s} {c['prob']:.2f}")
 

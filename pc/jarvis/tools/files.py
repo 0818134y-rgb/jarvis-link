@@ -61,11 +61,13 @@ def search_files(query: str, folder: str = "") -> str:
                 break
     hits.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
     _last_results = hits[:10]
+    from .screen import set_numbered_list
+    set_numbered_list([(p.name, p) for p in _last_results], "files")
     if not _last_results:
         return f"「{query}」に一致するファイルは見つかりませんでした。"
     lines = [f"{i}. {p.name} ({p.parent})" for i, p in enumerate(_last_results, 1)]
     return f"{len(hits)}件見つかりました。新しい順に:\n" + "\n".join(lines) + \
-        "\n(番号で open_path / move_file / delete_file に指定できます)"
+        "\n「1番を開いて」のように番号で開けます。"
 
 
 @registry.add("open_path", "ファイルやフォルダを開く。検索結果の番号でも指定可", {

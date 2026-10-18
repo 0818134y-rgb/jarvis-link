@@ -2,6 +2,7 @@ package com.zen.jarvis.brain
 
 import android.content.Context
 import android.util.Log
+import com.zen.jarvis.Jarvis
 import com.zen.jarvis.agent.Rules
 import com.zen.jarvis.tools.Origin
 import com.zen.jarvis.tools.ToolRegistry
@@ -44,6 +45,8 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
     @Volatile private var lastPlace: String? = null
     @Volatile private var more: String? = null
     @Volatile private var lastTime = 0L
+    @Volatile private var lastOpened: String? = null
+    @Volatile private var lastOpenedAt = 0L
 
     /** モデルを先に読み込んでおく (初回の返答を速くするため)。 */
     fun warmUp() {
@@ -57,7 +60,8 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
         }
         if (local) lastTime = System.currentTimeMillis()
         return try {
-            respond(text.trim(), origin)
+            val parts = splitCompound(text.trim())
+            if (parts.size > 1) runCompound(parts, origin) else respond(text.trim(), origin)
         } catch (e: IOException) {
             Log.w(TAG, "network", e)
             "ネットワークに接続できませんでした。電波の状態を確認してください。"
@@ -67,12 +71,36 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
         }
     }
 
+    /** 「YouTubeを開いて、猫動画を検索して」のような連続指示を分ける。 */
+    private fun splitCompound(text: String): List<String> {
+        val parts = text.split(Regex("(?<=て)(?:から)?[、,]\\s*|(?<=て)から|[、,]?(?:それから|そのあと|その後|そして|次に)[、,]?"))
+            .map { it.trim(' ', '、', ',') }.filter { it.length >= 2 }
+        if (parts.size < 2) return listOf(text)
+        val ok = parts.all { p -> model.predict(p, 1)[0].let { it.prob >= 0.5 && it.intent in ACTION_INTENTS } }
+        return if (ok) parts else listOf(text)
+    }
+
+    private suspend fun runCompound(parts: List<String>, origin: Origin): String {
+        val replies = mutableListOf<String>()
+        for ((i, p) in parts.withIndex()) {
+            val r = respond(p, origin)
+            replies += r
+            if (pending != null || confirmAction != null) break  // 聞き返しが出たらそこで止める
+            if (i < parts.lastIndex) kotlinx.coroutines.delay(if (lastIntent in setOf("open_app", "browser_search")) 1800 else 600)
+        }
+        return replies.joinToString(" ")
+    }
+
     private suspend fun respond(text: String, origin: Origin): String {
         val local = origin is Origin.Local
         val name = memory.callName
         if (IntentModel.normalize(text).isEmpty()) return "はい、$name。ご用件をどうぞ。"
 
         // ---- 他の端末宛て (「パソコンで〜」) は最優先で転送 ----
+        if (Regex("このページ|このサイト|今のページ|このURL|見てるページ|開いてるページ").containsMatchIn(text) &&
+            Regex("パソコン|PC|ピーシー|コンピュータ", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+            return tool("share_page", obj("device" to "pc"), origin)
+        }
         Rules.match(text)?.let { r ->
             if (r.tool in REMOTE_TOOLS) return tool(r.tool, r.args, origin)
         }
@@ -208,8 +236,17 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
                 ?: ask("alarm", "何時にセットしますか？")
             "open_app" -> {
                 val args = ruleArgs(text, "open_app")
-                if (args == null || Regex("^アプリ$").matches(args.optString("name"))) ask("open_app", "どのアプリを開きますか？")
-                else tool("open_app", args, origin)
+                val appName = args?.optString("name").orEmpty()
+                when {
+                    args == null || Regex("^アプリ$").matches(appName) -> ask("open_app", "どのアプリを開きますか？")
+                    com.zen.jarvis.tools.Sites.looksLikeDomain(appName) -> tool("open_url", obj("url" to appName), origin)
+                    else -> {
+                        if (local) { lastOpened = appName; lastOpenedAt = System.currentTimeMillis() }
+                        val r = tool("open_app", args, origin)
+                        val site = com.zen.jarvis.tools.Sites.find(appName)
+                        if (r.contains("見つかりませんでした") && site != null) tool("open_url", obj("url" to site.home), origin) else r
+                    }
+                }
             }
             "call" -> ruleArgs(text, "call")?.let { tool("call", it, origin) }
                 ?: Regex("^(.+?)に(?:電話|連絡)").find(text)?.let { tool("call", obj("target" to it.groupValues[1]), origin) }
@@ -224,8 +261,74 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
             "navigate" -> ruleArgs(text, "navigate")?.let { tool("navigate", it, origin) }
                 ?: Regex("^(.+?)(?:に連れてって|へのルート|までどうやって)").find(text)?.let { tool("navigate", obj("destination" to it.groupValues[1]), origin) }
                 ?: ask("navigate", "どこまで案内しますか？")
-            "browser_search" -> ruleArgs(text, "browser_search")?.let { tool("browser_search", it, origin) }
-                ?: ask("browser_search", "何を検索しますか？")
+            "browser_search" -> {
+                val recent = lastOpened?.takeIf { System.currentTimeMillis() - lastOpenedAt < 60_000 }
+                val site = com.zen.jarvis.tools.Sites.find(text) ?: recent?.let { com.zen.jarvis.tools.Sites.find(it) }
+                if (site != null) {
+                    val q = com.zen.jarvis.tools.Sites.queryOf(text, site)
+                    if (q.isBlank()) tool("open_url", obj("url" to site.home), origin)
+                    else tool("site_search", obj("site" to site.name, "query" to q), origin)
+                } else {
+                    ruleArgs(text, "browser_search")?.let { tool("browser_search", it, origin) }
+                        ?: ask("browser_search", "何を検索しますか？")
+                }
+            }
+            "browser_control" -> {
+                val action = when {
+                    Regex("新しいタブ|シークレット").containsMatchIn(text) -> "new_tab"
+                    Regex("戻").containsMatchIn(text) -> "back"
+                    Regex("一番上|トップ").containsMatchIn(text) -> "top"
+                    Regex("一番下").containsMatchIn(text) -> "bottom"
+                    Regex("再読み込み|更新|リロード").containsMatchIn(text) -> "reload"
+                    else -> "other"
+                }
+                tool("browser_control", obj("action" to action), origin)
+            }
+            "list_items" -> tool("list_items", JSONObject(), origin)
+            "tap_item" -> {
+                val n = Regex("(\\d+)").find(JapaneseNumber.replaceKanjiNumbers(text))?.value?.toInt()
+                if (n == null) ask("tap_item", "何番をタップしますか？") else tool("tap_item", obj("number" to n), origin)
+            }
+            "long_press" -> {
+                val t = Regex("^(?:ジャーヴィス[、,\\s]*)?(.+?)(?:を)?(?:長押し|押しっぱなし)").find(text)?.groupValues?.get(1)
+                if (t.isNullOrBlank()) ask("long_press", "どれを長押ししますか？") else tool("long_press", obj("text" to t), origin)
+            }
+            "swipe" -> tool("swipe", obj("direction" to if (Regex("右|前").containsMatchIn(text)) "right" else "left"), origin)
+            "share_page" -> if (Regex("パソコン|PC|ピーシー|コンピュータ", RegexOption.IGNORE_CASE).containsMatchIn(text))
+                tool("share_page", obj("device" to "pc"), origin) else "このページはもうスマホで開いていますよ。"
+            "find_phone" -> tool("find_phone", JSONObject(), origin)
+            "calendar_add" -> {
+                val ev = parseEvent(text)
+                if (ev == null) "いつの、何の予定ですか？「明日10時に会議を予定に入れて」のように言ってください。"
+                else tool("calendar_add", obj("title" to ev.first, "start" to ev.second.toString()), origin)
+            }
+            "mail" -> {
+                val body = Regex("[「『](.+?)[」』]").find(text)?.groupValues?.get(1) ?: ""
+                tool("compose_mail", obj("body" to body), origin)
+            }
+            "post_x" -> {
+                val t = Regex("[「『](.+?)[」』]").find(text)?.groupValues?.get(1)
+                    ?: Regex("(?:Xに|ツイッターに|エックスに)?(.+?)(?:と|って)(?:投稿|つぶやいて|ポスト|ツイート)", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)
+                tool("post_x", obj("text" to (t ?: "")), origin)
+            }
+            "take_photo" -> tool("take_photo", obj("video" to text.contains("動画")), origin)
+            "sleep" -> tool("lock_screen", JSONObject(), origin)
+            "file_search", "window" -> forwardToPc(text, origin, "パソコンの機能")
+            "close_app" -> {
+                val r = tool("go_home", JSONObject(), origin)
+                if (r.startsWith("画面操作")) r else "アプリを閉じてホーム画面に戻りました。"
+            }
+            "keys" -> {
+                val act = when {
+                    Regex("コピー").containsMatchIn(text) -> "copy"
+                    Regex("貼り付け|ペースト").containsMatchIn(text) -> "paste"
+                    Regex("切り取").containsMatchIn(text) -> "cut"
+                    Regex("全部選択|全選択").containsMatchIn(text) -> "select_all"
+                    Regex("エンター|決定|確定").containsMatchIn(text) -> "enter"
+                    else -> null
+                }
+                if (act == null) forwardToPc(text, origin, "パソコンのキーボード操作") else tool("edit_action", obj("action" to act), origin)
+            }
             "settings" -> {
                 val page = when {
                     Regex("wi-?fi|ワイファイ|無線", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "wifi"
@@ -243,7 +346,7 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
             "go_back" -> tool("go_back", JSONObject(), origin)
             "go_home" -> tool("go_home", JSONObject(), origin)
             "recents" -> tool("recent_apps", JSONObject(), origin)
-            "notifications" -> tool("open_notifications", JSONObject(), origin)
+            "notifications" -> tool("read_notifications", JSONObject(), origin)
             "lock_screen" -> tool("lock_screen", JSONObject(), origin)
             "read_screen" -> tool("read_screen", JSONObject(), origin)
             "scroll" -> tool("scroll", obj("direction" to if (Regex("上|戻").containsMatchIn(text)) "up" else "down"), origin)
@@ -351,9 +454,11 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
             }
 
             // ---------------- 会話 ----------------
-            "capabilities" -> "いろいろお手伝いできます。スマホの操作なら、ライト、音量、アプリを開く、タイマーやアラーム、電話、道案内、" +
-                "画面のタップやスクロール。調べものなら、天気、ニュース、Wikipediaの知識、計算、為替。" +
-                "名前や予定のメモも覚えておけます。パソコンと連携していれば「パソコンで〇〇して」で操作もできますよ。"
+            "capabilities" -> "いろいろお手伝いできます。スマホの操作なら、アプリを開く、ライト、音量、タイマーやアラーム、電話、道案内、写真撮影。" +
+                "アプリの中の操作は「画面の項目を教えて」で番号を読み上げるので、「3番をタップ」のように指示してください。スクロールやスワイプ、長押し、文字入力もできます。" +
+                "ブラウザでは、Amazonや楽天、YouTubeなどのサイト内検索や新しいタブ。調べものは、天気、ニュース、Wikipedia、計算、為替。" +
+                "「YouTubeを開いて、猫動画を検索して」のように続けて頼むこともできます。" +
+                "パソコンとつながっていれば「パソコンで〇〇して」「このページをパソコンで開いて」も使えますよ。"
             "decide" -> Talk.decide(text)
             "oos" -> if (looksLikeQuestion(text)) unknown(text, origin) else Talk.reply("oos", name)!!
             else -> Talk.reply(intent, name) ?: unknown(text, origin)
@@ -404,6 +509,40 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
         return if (days == 0L) "今日が${label}です！" else "${label}まで、あと${days}日です。"
     }
 
+    /** PCにしかない機能は、つながっていればPCへ回す。 */
+    private suspend fun forwardToPc(text: String, origin: Origin, what: String): String {
+        val pc = Jarvis.directory.list().firstOrNull { it.platform == "windows" }
+            ?: return "それは${what}です。パソコン版のJARVISとつながっている時に「パソコンで〜」と頼んでください。"
+        return tool("send_to_device", obj("device" to pc.name, "command" to text), origin)
+    }
+
+    /** 「明日10時に会議を予定に入れて」→ ("会議", 明日10:00) */
+    private fun parseEvent(text: String): Pair<String, LocalDateTime>? {
+        val t = JapaneseNumber.replaceKanjiNumbers(text)
+        val today = LocalDate.now()
+        val date = when {
+            Regex("明後日|あさって").containsMatchIn(t) -> today.plusDays(2)
+            Regex("明日|あした").containsMatchIn(t) -> today.plusDays(1)
+            else -> Regex("(\\d{1,2})月(\\d{1,2})日").find(t)?.let {
+                var d = LocalDate.of(today.year, it.groupValues[1].toInt(), it.groupValues[2].toInt())
+                if (d.isBefore(today)) d = d.plusYears(1)
+                d
+            } ?: today
+        }
+        val tm = Regex("(午前|午後|朝|夜)?(\\d{1,2})時(?:(\\d{1,2})分|(半))?").find(t) ?: return null
+        var hour = tm.groupValues[2].toInt()
+        if ((tm.groupValues[1] == "午後" || tm.groupValues[1] == "夜") && hour < 12) hour += 12
+        val minute = if (tm.groupValues[3].isNotEmpty()) tm.groupValues[3].toInt() else if (tm.groupValues[4].isNotEmpty()) 30 else 0
+        val title = t.replace(Regex("^(ジャーヴィス|ジャービス)[、,\\s]*"), "")
+            .replace(Regex("(今日|明日|あした|明後日|あさって|\\d{1,2}月\\d{1,2}日)(の)?"), "")
+            .replace(tm.value, "")
+            .replace(Regex("^(に|から|より|の)"), "")
+            .replace(Regex("(を|の)?(予定|スケジュール|カレンダー)?(に|へ)?(入れて|追加して|追加|登録して|登録|を入れて)$"), "")
+            .replace(Regex("(の予定|予定|を)$"), "")
+            .trim(' ', '、', 'に', 'の', 'を')
+        return title.ifBlank { "予定" } to LocalDateTime.of(date, java.time.LocalTime.of(hour.coerceIn(0, 23), minute.coerceIn(0, 59)))
+    }
+
     private fun looksLikeQuestion(text: String) =
         Regex("(何|なに|誰|だれ|どこ|いつ|なぜ|どうして|どう|いくら|教えて|知ってる|とは|って|か)[？?]?$").containsMatchIn(text)
 
@@ -428,6 +567,11 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
 
     companion object {
         private const val TAG = "JarvisBrain"
+        private val ACTION_INTENTS = setOf("flashlight", "volume", "media", "music_play", "timer", "alarm", "open_app",
+            "call", "sms", "navigate", "browser_search", "browser_control", "settings", "screenshot", "go_back", "go_home",
+            "recents", "notifications", "lock_screen", "scroll", "tap_text", "type_text", "list_items", "tap_item",
+            "long_press", "swipe", "share_page", "take_photo", "keys", "close_app", "window", "file_search", "calendar_add",
+            "mail", "post_x", "read_screen", "weather", "news", "time", "battery")
         private val REMOTE_TOOLS = setOf("send_to_device", "speak_on_device", "get_device_clipboard", "send_clipboard")
         private val NEWS_TOPICS = listOf("スポーツ", "経済", "IT", "芸能", "政治", "野球", "サッカー", "テクノロジー",
             "国際", "AI", "エンタメ", "科学", "ビジネス", "株", "ゲーム", "天気")

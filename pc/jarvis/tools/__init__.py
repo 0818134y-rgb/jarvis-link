@@ -93,8 +93,8 @@ registry = Registry()
 
 def load_all(cfg: dict, link=None, speaker=None) -> Registry:
     """全ツールモジュールを読み込んで registry を返す。"""
-    from . import apps, browser, files, remote, screen, shell  # noqa: F401
+    from . import apps, browser, files, remote, screen, shell, timers  # noqa: F401
 
-    screen.configure(cfg)
     remote.configure(link, speaker)
+    timers.configure(speaker)
     return registry

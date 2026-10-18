@@ -13,7 +13,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from jarvis.agent import Agent  # noqa: E402
 from jarvis.config import DEFAULTS, _merge  # noqa: E402
 from jarvis.link import Link, LinkError  # noqa: E402
 from jarvis.tools import CONFIRM, REMOTE_BLOCKED, Registry  # noqa: E402
@@ -60,33 +59,8 @@ def test_registry_risk():
     assert reg.call("flashlight", {"on": True, "bogus": 1}) == "ライトをつけました"
 
 
-class FakeOllama(http.server.BaseHTTPRequestHandler):
-    """1回目はツール呼び出し、ツール結果を受けたら文章で返す偽Ollama。"""
-
-    def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        msgs = body["messages"]
-        if msgs[-1]["role"] == "tool":
-            msg = {"role": "assistant", "content": f"完了です、ボス。({msgs[-1]['content']})"}
-        else:
-            msg = {"role": "assistant", "content": "", "tool_calls": [
-                {"function": {"name": "flashlight", "arguments": {"on": True}}}]}
-        data = json.dumps({"message": msg}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def log_message(self, *a):
-        pass
-
-
 def test_link_end_to_end():
-    ollama = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeOllama)
-    threading.Thread(target=ollama.serve_forever, daemon=True).start()
-    llm_port = ollama.server_address[1]
-
+    llm_port = 0
     token = "test-token-123"
     reg_b, state_b = make_registry()
     cfg_b = cfg_for("phone", 18766, token, llm_port=llm_port)
@@ -94,7 +68,9 @@ def test_link_end_to_end():
 
     def dispatch_b(req, peer):
         if req["type"] == "command":
-            return {"ok": True, "text": holder["agent"].run(req["text"], origin=f"remote:{peer}")}
+            if "ライト" in req["text"]:
+                return {"ok": True, "text": reg_b.call("flashlight", {"on": True}, origin=f"remote:{peer}")}
+            return {"ok": True, "text": "?"}
         if req["type"] == "tool":
             return {"ok": True, "text": reg_b.call(req["name"], req.get("args"), origin=f"remote:{peer}")}
         if req["type"] == "ping":
@@ -103,8 +79,6 @@ def test_link_end_to_end():
 
     link_b = Link(cfg_b, dispatch_b)
     link_b.start()
-    # 端末Bは android として振る舞わせる (PLATFORM はモジュール定数なので probe 結果を後で上書き)
-    holder["agent"] = Agent(cfg_b, reg_b, link_b)
 
     cfg_a = cfg_for("pc", 18765, token, peers=["127.0.0.1:18766"], llm_port=llm_port)
     link_a = Link(cfg_a, lambda r, p: {"ok": True, "text": "a"})
@@ -144,7 +118,6 @@ def test_link_end_to_end():
 
     for l in (link_a, link_b, link_bad):
         l.stop()
-    ollama.shutdown()
 
 
 def test_wake_word():
@@ -160,4 +133,4 @@ if __name__ == "__main__":
     test_registry_risk()
     test_wake_word()
     test_link_end_to_end()
-    print("ALL TESTS PASSED")
+    print("LINK TESTS PASSED")

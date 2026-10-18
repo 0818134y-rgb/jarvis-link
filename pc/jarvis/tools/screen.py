@@ -1,158 +1,165 @@
-"""画面を見て操作する: 画面の説明、ボタン等のクリック、文字入力、キー操作。
+"""画面のアプリを操作する: 項目に番号を振ってクリック、名前でクリック、文字入力、キー操作、画面の読み取り。
 
-クリックは2段構え:
-  1. Windows UI Automation でアクティブウィンドウ内の部品を名前で探す (速く正確)
-  2. 見つからなければスクリーンショットをビジョンモデル(qwen2.5vl)に渡して座標を推定
+外部のAIは使わず、Windows の UI Automation (アプリが公開している画面部品の情報) で操作する。
 """
 from __future__ import annotations
 
-import base64
-import io
-import json
-import re
+import datetime as dt
 import time
-
-import requests
+from pathlib import Path
 
 from . import REMOTE_BLOCKED, registry
 
-_cfg: dict = {}
+CLICKABLE_TYPES = {"Button", "Hyperlink", "MenuItem", "ListItem", "TabItem", "CheckBox", "RadioButton",
+                   "TreeItem", "SplitButton", "Edit", "ComboBox", "DataItem"}
 
-# qwen2.5-VL は 28px 単位で画像を扱う。こちらで 28 の倍数に縮小しておけば
-# モデル側で再リサイズされず、返ってくる座標をそのまま元画面に戻せる。
-VISION_W, VISION_H = 1288, 728
-
-
-def configure(cfg: dict) -> None:
-    _cfg.update(cfg.get("llm", {}))
+_last_items: list = []          # [(label, control)]
+_last_kind: str = ""            # "screen" | "files"
 
 
-def _screenshot():
-    import mss
-    from PIL import Image
-    with mss.mss() as sct:
-        mon = sct.monitors[1]  # メインモニター
-        raw = sct.grab(mon)
-        img = Image.frombytes("RGB", raw.size, raw.rgb)
-    return img, mon
+def configure(cfg: dict) -> None:  # 旧版との互換用
+    pass
 
 
-def _to_b64(img) -> str:
-    small = img.resize((VISION_W, VISION_H))
-    buf = io.BytesIO()
-    small.save(buf, format="JPEG", quality=85)
-    return base64.b64encode(buf.getvalue()).decode()
+def set_numbered_list(items: list, kind: str) -> None:
+    """番号で選べる一覧を登録 (画面の項目・ファイル検索結果)。"""
+    global _last_items, _last_kind
+    _last_items, _last_kind = items, kind
 
 
-def _vision(prompt: str, img) -> str:
-    r = requests.post(f"{_cfg.get('host', 'http://localhost:11434')}/api/chat", json={
-        "model": _cfg.get("vision_model", "qwen2.5vl:7b"),
-        "stream": False,
-        "options": {"temperature": 0},
-        "messages": [{"role": "user", "content": prompt, "images": [_to_b64(img)]}],
-    }, timeout=180)
-    r.raise_for_status()
-    return r.json()["message"]["content"]
-
-
-@registry.add("describe_screen", "今のPC画面に何が表示されているかを見て答える", {
-    "question": {"type": "string", "description": "画面について知りたいこと。省略で概要"},
-}, risk=REMOTE_BLOCKED)
-def describe_screen(question: str = "") -> str:
-    img, _ = _screenshot()
-    q = question or "この画面に何が表示されているか、日本語で3文以内で要約してください。"
-    return _vision(q + "\n日本語で簡潔に答えてください。", img)
-
-
-def _uia_click(target: str, double: bool) -> str | None:
-    try:
-        from pywinauto import Desktop
-    except ImportError:
+def _foreground():
+    from pywinauto import Desktop
+    import pygetwindow as gw
+    active = gw.getActiveWindow()
+    if not active:
         return None
-    try:
-        import pygetwindow as gw
-        active = gw.getActiveWindow()
-        if not active:
-            return None
-        win = Desktop(backend="uia").window(handle=active._hWnd)
-        key = target.replace(" ", "").lower()
-        start = time.time()
-        best = None
-        for ctrl in win.descendants():
-            name = (ctrl.window_text() or "").replace(" ", "").lower()
-            if not name:
-                continue
-            if name == key:
-                best = ctrl
-                break
-            if key in name and best is None:
-                best = ctrl
-            if time.time() - start > 4:
-                break
-        if best is None:
-            return None
-        if double:
-            best.double_click_input()
-        else:
-            best.click_input()
-        return f"「{best.window_text()}」をクリックしました。"
-    except Exception:  # noqa: BLE001 - UIAが使えないアプリは視覚フォールバックへ
-        return None
+    return Desktop(backend="uia").window(handle=active._hWnd)
 
 
-def _parse_point(text: str) -> tuple[float, float] | None:
-    m = re.search(r"\{[^{}]*\}", text, re.S)
-    if m:
+def _controls(limit_sec: float = 4.0):
+    win = _foreground()
+    if win is None:
+        return []
+    start = time.time()
+    out = []
+    for c in win.descendants():
+        if time.time() - start > limit_sec:
+            break
         try:
-            d = json.loads(m.group(0))
-            if "bbox_2d" in d or "bbox" in d:
-                x1, y1, x2, y2 = d.get("bbox_2d") or d.get("bbox")
-                return (x1 + x2) / 2, (y1 + y2) / 2
-            if "x" in d and "y" in d:
-                return float(d["x"]), float(d["y"])
-        except (ValueError, TypeError, KeyError):
-            pass
-    nums = [float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", text)]
-    if len(nums) >= 4:
-        return (nums[0] + nums[2]) / 2, (nums[1] + nums[3]) / 2
-    if len(nums) >= 2:
-        return nums[0], nums[1]
-    return None
+            if not c.is_visible():
+                continue
+            out.append(c)
+        except Exception:  # noqa: BLE001
+            continue
+    return out
 
 
-@registry.add("click_on", "画面上のボタン・リンク・アイコンなどを名前や見た目で指定してクリックする", {
-    "target": {"type": "string", "description": "クリックしたいもの (例: 保存ボタン, 右上の×)"},
-    "double": {"type": "boolean", "description": "ダブルクリックするか"},
+@registry.add("list_items", "今のウィンドウの押せる項目に番号を振って読み上げる(「3番をクリック」で使う)", risk=REMOTE_BLOCKED)
+def list_items(max_items: int = 20) -> str:
+    items, seen = [], set()
+    for c in _controls():
+        try:
+            ctype = c.element_info.control_type
+            name = (c.window_text() or "").strip()
+        except Exception:  # noqa: BLE001
+            continue
+        if ctype not in CLICKABLE_TYPES:
+            continue
+        if not name and ctype == "Edit":
+            name = "入力欄"
+        if not name or name in seen or len(name) > 60:
+            continue
+        seen.add(name)
+        items.append((name, c))
+        if len(items) >= max_items:
+            break
+    set_numbered_list(items, "screen")
+    if not items:
+        return "押せる項目が見つかりませんでした。"
+    return f"{len(items)}個あります。" + "。".join(f"{i}番、{n}" for i, (n, _) in enumerate(items, 1)) + "。"
+
+
+@registry.add("tap_item", "list_items やファイル検索で読み上げた番号の項目を選ぶ", {
+    "number": {"type": "integer"},
+}, ["number"], risk=REMOTE_BLOCKED)
+def tap_item(number: int) -> str:
+    if _last_kind == "files":
+        from .files import open_path
+        return open_path(str(number))
+    if not _last_items:
+        list_items()
+    if not (1 <= int(number) <= len(_last_items)):
+        return f"{number}番の項目がありません。「画面の項目を教えて」で番号を確認してください。"
+    name, ctrl = _last_items[int(number) - 1]
+    try:
+        if ctrl.element_info.control_type == "Edit":
+            ctrl.set_focus()
+        else:
+            ctrl.click_input()
+    except Exception as e:  # noqa: BLE001
+        return f"{number}番をクリックできませんでした: {e}"
+    return f"{number}番、{name}をクリックしました。"
+
+
+def _find_by_name(target: str):
+    key = target.replace(" ", "").lower()
+    best = None
+    for c in _controls():
+        try:
+            name = (c.window_text() or "").replace(" ", "").lower()
+        except Exception:  # noqa: BLE001
+            continue
+        if not name:
+            continue
+        if name == key:
+            return c
+        if key in name and best is None:
+            best = c
+    return best
+
+
+@registry.add("click_on", "画面上のボタンやリンクを名前でクリックする", {
+    "target": {"type": "string", "description": "クリックしたいものの表示名 (例: 保存, OK, ログイン)"},
+    "double": {"type": "boolean"}, "right": {"type": "boolean", "description": "右クリックするか"},
 }, ["target"], risk=REMOTE_BLOCKED)
-def click_on(target: str, double: bool = False) -> str:
-    import pyautogui
-    done = _uia_click(target, double)
-    if done:
-        return done
-    img, mon = _screenshot()
-    answer = _vision(
-        f"画像 ({VISION_W}x{VISION_H}px) の中から「{target}」を探し、その中心座標を"
-        ' {"x": 数値, "y": 数値} のJSONだけで答えてください。見つからなければ {"x": -1, "y": -1}。',
-        img,
-    )
-    pt = _parse_point(answer)
-    if not pt or pt[0] < 0 or pt[1] < 0:
-        return f"画面上に「{target}」が見つかりませんでした。"
-    x = mon["left"] + pt[0] * mon["width"] / VISION_W
-    y = mon["top"] + pt[1] * mon["height"] / VISION_H
-    x = max(mon["left"], min(x, mon["left"] + mon["width"] - 1))
-    y = max(mon["top"], min(y, mon["top"] + mon["height"] - 1))
-    pyautogui.moveTo(x, y, duration=0.25)
-    if double:
-        pyautogui.doubleClick()
-    else:
-        pyautogui.click()
-    return f"「{target}」と思われる位置 ({int(x)}, {int(y)}) をクリックしました。"
+def click_on(target: str, double: bool = False, right: bool = False) -> str:
+    c = _find_by_name(target)
+    if c is None:
+        return f"画面に「{target}」が見つかりませんでした。「画面の項目を教えて」で番号から選ぶこともできます。"
+    try:
+        if right:
+            c.right_click_input()
+        elif double:
+            c.double_click_input()
+        else:
+            c.click_input()
+    except Exception as e:  # noqa: BLE001
+        return f"クリックできませんでした: {e}"
+    return f"「{c.window_text()}」を{'右' if right else ''}クリックしました。"
+
+
+@registry.add("read_screen", "今のウィンドウに表示されている文字を読み取る", risk=REMOTE_BLOCKED)
+def read_screen() -> str:
+    win = _foreground()
+    if win is None:
+        return "アクティブなウィンドウがありません。"
+    texts, seen = [], set()
+    for c in _controls():
+        try:
+            t = (c.window_text() or "").strip()
+        except Exception:  # noqa: BLE001
+            continue
+        if t and t not in seen and len(t) < 200:
+            seen.add(t)
+            texts.append(t)
+        if sum(len(x) for x in texts) > 800:
+            break
+    title = win.window_text()
+    return f"「{title}」の画面です。" + ("、".join(texts[:40]) if texts else "文字は読み取れませんでした。")
 
 
 @registry.add("type_text", "今カーソルがある場所に文字を入力する(日本語可)", {
-    "text": {"type": "string", "description": "入力する文字"},
-    "enter": {"type": "boolean", "description": "入力後にEnterを押すか"},
+    "text": {"type": "string"}, "enter": {"type": "boolean", "description": "入力後にEnterを押すか"},
 }, ["text"], risk=REMOTE_BLOCKED)
 def type_text(text: str, enter: bool = False) -> str:
     import pyautogui
@@ -189,10 +196,26 @@ def press_keys(keys: str) -> str:
 
 
 @registry.add("scroll", "画面をスクロールする", {
-    "direction": {"type": "string", "enum": ["up", "down"]},
-    "amount": {"type": "integer", "description": "量 (既定5)"},
+    "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+    "amount": {"type": "integer"},
 }, ["direction"], risk=REMOTE_BLOCKED)
 def scroll(direction: str, amount: int = 5) -> str:
     import pyautogui
-    pyautogui.scroll(120 * int(amount) * (1 if direction == "up" else -1))
+    if direction in ("left", "right"):
+        pyautogui.hscroll(120 * int(amount) * (-1 if direction == "left" else 1))
+    else:
+        pyautogui.scroll(120 * int(amount) * (1 if direction == "up" else -1))
     return "スクロールしました。"
+
+
+@registry.add("screenshot", "画面全体のスクリーンショットをピクチャフォルダに保存する")
+def screenshot() -> str:
+    import mss
+    import mss.tools
+    folder = Path.home() / "Pictures" / "JARVIS"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"screenshot_{dt.datetime.now():%Y%m%d_%H%M%S}.png"
+    with mss.mss() as sct:
+        shot = sct.grab(sct.monitors[0])
+        mss.tools.to_png(shot.rgb, shot.size, output=str(path))
+    return f"スクリーンショットを保存しました。ピクチャのJARVISフォルダにあります。"

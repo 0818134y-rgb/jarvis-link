@@ -196,3 +196,16 @@ def lock_pc() -> str:
 def sleep_pc() -> str:
     subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
     return "スリープします。"
+
+
+_SETTINGS = {"wifi": "ms-settings:network-wifi", "bluetooth": "ms-settings:bluetooth", "display": "ms-settings:display",
+             "sound": "ms-settings:sound", "battery": "ms-settings:batterysaver", "location": "ms-settings:privacy-location",
+             "apps": "ms-settings:appsfeatures", "general": "ms-settings:"}
+
+
+@registry.add("open_settings", "Windowsの設定画面を開く", {
+    "page": {"type": "string", "enum": list(_SETTINGS)},
+}, ["page"])
+def open_settings(page: str = "general") -> str:
+    os.startfile(_SETTINGS.get(page, "ms-settings:"))  # type: ignore[attr-defined]
+    return "設定を開きました。"
