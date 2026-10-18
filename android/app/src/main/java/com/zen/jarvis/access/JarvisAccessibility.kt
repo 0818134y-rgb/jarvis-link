@@ -26,6 +26,10 @@ class JarvisAccessibility : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        // 端末の再起動後など、JARVIS本体が止まっていれば起こす (OSが許可しない場合はアプリを開いた時に起動)
+        if (!com.zen.jarvis.JarvisService.running) {
+            runCatching { com.zen.jarvis.JarvisService.start(this) }
+        }
     }
 
     override fun onDestroy() {
@@ -70,26 +74,18 @@ class JarvisAccessibility : AccessibilityService() {
 
     // ---------- タップ ----------
 
-    /** 表示テキストまたは説明文で要素を探してタップ。 */
+    /** 表示テキスト・説明文・ヒント・ID名から、言われた名前に一番近い要素を探してタップ。見つからなければ下にスクロールして探す。 */
     suspend fun tapText(query: String): Boolean {
-        val q = query.trim().lowercase()
-        var exact: AccessibilityNodeInfo? = null
-        var partial: AccessibilityNodeInfo? = null
-        for (root in roots()) {
-            walk(root) { n ->
-                if (n.isVisibleToUser) {
-                    val label = ((n.text ?: "").toString() + " " + (n.contentDescription ?: "").toString()).trim().lowercase()
-                    if (label.isNotEmpty()) {
-                        val parts = label.split(" ")
-                        if (exact == null && parts.any { it == q }) exact = n
-                        else if (partial == null && label.contains(q)) partial = n
-                    }
-                }
-                exact == null
-            }
-            if (exact != null) break
+        repeat(3) { attempt ->
+            val target = findBest(query)
+            if (target != null) return clickNode(target)
+            if (attempt < 2 && !scroll(true)) return false
+            kotlinx.coroutines.delay(400)
         }
-        val target = exact ?: partial ?: return false
+        return false
+    }
+
+    private suspend fun clickNode(target: AccessibilityNodeInfo): Boolean {
         var node: AccessibilityNodeInfo? = target
         while (node != null) {
             if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
@@ -98,6 +94,107 @@ class JarvisAccessibility : AccessibilityService() {
         val r = Rect().also { target.getBoundsInScreen(it) }
         return tapAt(r.exactCenterX(), r.exactCenterY())
     }
+
+    /** 名前のゆれ (カタカナ/ひらがな・全角/半角・空白・多少の言い間違い) に強い検索。 */
+    fun findBest(query: String): AccessibilityNodeInfo? {
+        val q = norm(query).removeSuffix("ぼたん").removeSuffix("ボタン")
+        if (q.isEmpty()) return null
+        var best: AccessibilityNodeInfo? = null
+        var bestScore = 0.0
+        for (root in roots()) {
+            walk(root) { n ->
+                if (n.isVisibleToUser) {
+                    for (raw in labelsOf(n)) {
+                        val l = norm(raw)
+                        if (l.isEmpty()) continue
+                        var sc = when {
+                            l == q -> 100.0
+                            l.startsWith(q) -> 80.0 + 10.0 * q.length / l.length
+                            l.contains(q) -> 60.0 + 20.0 * q.length / l.length
+                            l.length >= 2 && q.contains(l) -> 40.0 + 20.0 * l.length / q.length
+                            else -> similarity(l, q).let { if (it >= 0.6) it * 50 else 0.0 }
+                        }
+                        if (sc > 0 && (n.isClickable || n.parent?.isClickable == true)) sc += 10
+                        if (sc > bestScore) { bestScore = sc; best = n }
+                    }
+                }
+                true
+            }
+        }
+        return best
+    }
+
+    private fun labelsOf(n: AccessibilityNodeInfo): List<String> {
+        val out = mutableListOf<String>()
+        n.text?.toString()?.let { out += it }
+        n.contentDescription?.toString()?.let { out += it }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) n.hintText?.toString()?.let { out += it }
+        n.viewIdResourceName?.substringAfterLast('/')?.replace('_', ' ')?.let { out += it }
+        return out
+    }
+
+    // ---------- アプリ内検索のための部品 ----------
+
+    /** 指定アプリが前面に来るまで待つ */
+    suspend fun waitForPackage(pkg: String, timeoutMs: Long = 5000): Boolean {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            if (rootInActiveWindow?.packageName?.toString() == pkg) return true
+            kotlinx.coroutines.delay(200)
+        }
+        return false
+    }
+
+    private val searchWords = Regex("検索|search|さがす|探す|サーチ|find|query|キーワード", RegexOption.IGNORE_CASE)
+
+    /** 検索欄がすでに見えていればそこを選ぶ */
+    fun focusSearchField(): Boolean {
+        var field: AccessibilityNodeInfo? = null
+        for (root in roots()) {
+            walk(root) { n ->
+                if (n.isVisibleToUser && n.isEditable && labelsOf(n).any { searchWords.containsMatchIn(it) }) field = n
+                field == null
+            }
+            if (field != null) break
+        }
+        val f = field ?: return false
+        f.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        return f.performAction(AccessibilityNodeInfo.ACTION_FOCUS) || true
+    }
+
+    /** 虫眼鏡ボタンなど、検索を始めるボタンを押す */
+    suspend fun tapSearchButton(): Boolean {
+        var btn: AccessibilityNodeInfo? = null
+        for (root in roots()) {
+            walk(root) { n ->
+                if (n.isVisibleToUser && !n.isEditable && labelsOf(n).any { searchWords.containsMatchIn(it) }) {
+                    if (n.isClickable || n.parent?.isClickable == true) btn = n
+                }
+                btn == null
+            }
+            if (btn != null) break
+        }
+        return btn?.let { clickNode(it) } ?: false
+    }
+
+    /** ヒントや名前で入力欄を指定して文字を入れる (例: 「メール」の欄) */
+    fun typeInto(fieldHint: String, text: String): Boolean {
+        val h = norm(fieldHint)
+        var field: AccessibilityNodeInfo? = null
+        for (root in roots()) {
+            walk(root) { n ->
+                if (n.isVisibleToUser && n.isEditable && labelsOf(n).any { norm(it).contains(h) }) field = n
+                field == null
+            }
+            if (field != null) break
+        }
+        val f = field ?: return false
+        f.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        f.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
+        return f.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
+
 
     suspend fun tapAt(x: Float, y: Float): Boolean {
         val path = Path().apply { moveTo(x, y) }
@@ -309,3 +406,29 @@ class JarvisAccessibility : AccessibilityService() {
         }
     }
 }
+
+/** 名前の比較用: NFKC・小文字・カタカナ→ひらがな・空白と長音を除く */
+internal fun norm(s: String): String {
+        val t = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKC).lowercase()
+        val sb = StringBuilder()
+        for (c in t) {
+            if (c.isWhitespace() || c == 'ー' || c == '・') continue
+            sb.append(if (c in '\u30a1'..'\u30f6') (c.code - 0x60).toChar() else c)
+        }
+        return sb.toString()
+    }
+
+internal fun similarity(a: String, b: String): Double {
+        if (a.isEmpty() || b.isEmpty()) return 0.0
+        val dp = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            var prev = dp[0]
+            dp[0] = i
+            for (j in 1..b.length) {
+                val tmp = dp[j]
+                dp[j] = minOf(dp[j] + 1, dp[j - 1] + 1, prev + if (a[i - 1] == b[j - 1]) 0 else 1)
+                prev = tmp
+            }
+        }
+        return 1.0 - dp[b.length].toDouble() / maxOf(a.length, b.length)
+    }

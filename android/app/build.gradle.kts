@@ -12,8 +12,8 @@ android {
         applicationId = "com.zen.jarvis"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.4.0"
         // 現行のAndroidスマホ(64bit ARM)だけに絞ってAPKを小さくする
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -48,6 +48,10 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+    androidResources {
+        // 音声モデルは圧縮しない (展開を速くする)
+        noCompress += listOf("mdl", "fst", "int", "conf", "mat", "dubm", "ie", "stats", "txt")
+    }
 }
 
 dependencies {
@@ -63,6 +67,10 @@ dependencies {
     // 非同期
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
+
+    // 呼びかけの常時待ち受け (端末内音声認識・オフライン・ビープ音なし)
+    implementation("com.alphacephei:vosk-android:0.3.75")
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
 
     // 端末間連携: サーバー(Java-WebSocket) / クライアント(OkHttp)
     implementation("org.java-websocket:Java-WebSocket:1.5.7")

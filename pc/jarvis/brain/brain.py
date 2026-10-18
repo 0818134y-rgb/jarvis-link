@@ -249,6 +249,10 @@ class Brain:
         if intent == "browser_search":
             recent = self.last_opened[0] if self.last_opened and time.time() - self.last_opened[1] < 60 else None
             site = sites.find(text) or (sites.find(recent) if recent else None)
+            m = re.search(r"^(?:ジャーヴィス[、,\s]*)?(.+?)(?:アプリ)?で(.+?)(?:を|って)?(?:検索|探して|調べて|さがして)", text)
+            if not site and m and not re.fullmatch(r"ネット|ブラウザ|ウェブ|web|インターネット|画面|ここ", m.group(1), re.I) \
+                    and _is_app(m.group(1)):
+                return T("app_search", {"app": m.group(1), "query": m.group(2)}, origin)
             if site:
                 q = sites.query_of(text, site)
                 return T("site_search", {"site": site[0], "query": q}, origin) if q else T("open_url", {"url": site[2]}, origin)
@@ -481,6 +485,15 @@ class Brain:
     def _offer_search(self, query: str, lead: str) -> str:
         self.confirm_action = lambda: self._tool("web_search", {"query": query})
         return f"{lead}ブラウザで調べましょうか？"
+
+
+def _is_app(name: str) -> bool:
+    """PCにあるアプリ名か (起動中のウィンドウ・スタートメニュー・よく使うアプリ)。"""
+    try:
+        from ..tools.apps import KNOWN_APPS, _norm, _windows_matching, find_shortcut
+        return _norm(name) in {_norm(k) for k in KNOWN_APPS} or bool(_windows_matching(name)) or find_shortcut(name) is not None
+    except Exception:  # noqa: BLE001  (Windows以外のテスト環境など)
+        return False
 
 
 def _looks_like_question(text: str) -> bool:

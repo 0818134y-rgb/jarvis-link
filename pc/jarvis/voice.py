@@ -40,6 +40,7 @@ class Listener:
         self.q: queue.Queue[np.ndarray] = queue.Queue()
         self.muted = threading.Event()
         self.threshold = 0.012
+        self.noise = 0.004
         self.stream = None
         self.last_start = 0.0  # 直近の発話が始まった時刻
 
@@ -64,9 +65,13 @@ class Listener:
             except queue.Empty:
                 break
         if levels:
-            noise = float(np.percentile(levels, 80))
-            self.threshold = max(0.008, noise * 3.0)
+            self.noise = float(np.percentile(levels, 60))
+            self._update_threshold()
         print(f"[asr] mic threshold = {self.threshold:.4f}")
+
+    def _update_threshold(self) -> None:
+        # 部屋の雑音の 2.5 倍を発話の目安にする (小さすぎ・大きすぎは制限)
+        self.threshold = min(0.08, max(0.006, self.noise * 2.5))
 
     def flush(self) -> None:
         while not self.q.empty():
@@ -92,8 +97,11 @@ class Listener:
                 continue
             level = float(np.sqrt(np.mean(frame ** 2)))
             if not started:
+                # 話していない間に雑音レベルを少しずつ追従させる (エアコン・換気扇などの変化に強く)
+                self.noise = self.noise * 0.995 + level * 0.005
+                self._update_threshold()
                 pre.append(frame)
-                pre = pre[-10:]  # 発話直前の300msも含める
+                pre = pre[-12:]  # 発話直前の360msも含める
                 if level > self.threshold:
                     started = True
                     self.last_start = time.time()
@@ -102,12 +110,12 @@ class Listener:
                     return None
                 continue
             voiced.append(frame)
-            silent = silent + 1 if level < self.threshold * 0.7 else 0
+            silent = silent + 1 if level < self.threshold * 0.6 else 0
             dur = len(voiced) * FRAME_MS / 1000
             if silent * FRAME_MS / 1000 >= silence_sec or dur >= max_sec:
                 break
         audio = np.concatenate(voiced)
-        if len(audio) < SAMPLE_RATE * 0.35:  # 短すぎる物音は捨てる
+        if len(audio) < SAMPLE_RATE * 0.3:  # 短すぎる物音は捨てる
             return None
         return audio
 
@@ -115,7 +123,7 @@ class Listener:
         segments, _ = self.model.transcribe(
             audio, language="ja", beam_size=3, vad_filter=True,
             condition_on_previous_text=False,
-            initial_prompt="ジャーヴィス、スマホのライトをつけて。メモ帳を開いて。")
+            initial_prompt="ジャーヴィス、スマホのライトをつけて。ジャーヴィス、メモ帳を開いて。ジャーヴィス、今日の天気は？")
         text = "".join(s.text for s in segments).strip()
         if any(h in text for h in HALLUCINATIONS) and len(text) < 25:
             return ""
@@ -177,6 +185,13 @@ class Speaker:
             import pyttsx3
             if self._fallback is None:
                 self._fallback = pyttsx3.init()
+                # 男性の声 (Ichiro など) があれば優先
+                for v in self._fallback.getProperty("voices"):
+                    n = (v.name or "") + (v.id or "")
+                    if any(k in n for k in ("Ichiro", "Male", "男性", "Keita", "Daichi")):
+                        self._fallback.setProperty("voice", v.id)
+                        break
+                self._fallback.setProperty("rate", 185)
             self._fallback.say(text)
             self._fallback.runAndWait()
         except Exception as e:  # noqa: BLE001

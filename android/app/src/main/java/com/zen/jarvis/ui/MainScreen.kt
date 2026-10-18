@@ -53,6 +53,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -260,6 +263,11 @@ private fun SettingsPanel(
     var discovery by remember { mutableStateOf(prefs.discovery) }
     var dangerous by remember { mutableStateOf(prefs.allowRemoteDangerous) }
     var forward by remember { mutableStateOf(prefs.forwardNotifications) }
+    var precise by remember { mutableStateOf(prefs.preciseCommand) }
+    var extraWake by remember { mutableStateOf(prefs.extraWakeWords) }
+    var voiceName by remember { mutableStateOf(prefs.voiceName) }
+    var pitch by remember { mutableStateOf(prefs.voicePitch) }
+    var rate by remember { mutableStateOf(prefs.voiceRate) }
     var showToken by remember { mutableStateOf(false) }
 
     Column(
@@ -304,12 +312,61 @@ private fun SettingsPanel(
         }, modifier = Modifier.fillMaxWidth()) { Text("保存して再接続") }
 
         SectionTitle("音声")
-        ToggleRow("常時「ジャーヴィス」を待ち受け", continuous) {
+        ToggleRow("「ジャーヴィス」と呼ぶだけで反応 (常時待ち受け)", continuous) {
             continuous = it
             prefs.continuous = it
             actions.startService()
             actions.reload()
         }
+        ToggleRow("呼びかけ後の指示は高精度認識で聞く", precise) {
+            precise = it
+            prefs.preciseCommand = it
+        }
+        val heard by Jarvis.heard.collectAsState()
+        Text("最後に聞こえた言葉: ${heard.ifBlank { "(まだありません)" }}", color = TextSub, fontSize = 12.sp)
+        if (heard.isNotBlank()) {
+            OutlinedButton(onClick = {
+                val w = heard.take(12)
+                extraWake = (extraWake.lines().filter { it.isNotBlank() } + w).distinct().joinToString("\n")
+                prefs.extraWakeWords = extraWake
+                Jarvis.log("system", "「$w」を呼びかけの言葉に追加しました")
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text("今の言葉を呼びかけとして登録 (反応しにくい時に)")
+            }
+        }
+        OutlinedTextField(extraWake, { extraWake = it; prefs.extraWakeWords = it },
+            label = { Text("追加の呼びかけ語 (1行に1つ)") }, minLines = 1, modifier = Modifier.fillMaxWidth())
+
+        SectionTitle("声")
+        val voices by produceState(initialValue = emptyList<com.zen.jarvis.voice.SpeechOutput.VoiceInfo>()) {
+            value = Jarvis.tts.japaneseVoices()
+        }
+        if (voices.isEmpty()) {
+            Text("日本語の声が見つかりません。端末の設定で「Google音声サービス」の日本語音声をダウンロードしてください。",
+                color = Amber, fontSize = 12.sp)
+        }
+        voices.take(8).forEach { v ->
+            Row(
+                Modifier.fillMaxWidth().clickable {
+                    voiceName = v.name; prefs.voiceName = v.name; Jarvis.tts.reloadVoice()
+                }.padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.RadioButton(
+                    selected = voiceName == v.name || (voiceName.isEmpty() && v == voices.first()),
+                    onClick = { voiceName = v.name; prefs.voiceName = v.name; Jarvis.tts.reloadVoice() })
+                Text(v.label, color = TextMain, fontSize = 12.sp)
+            }
+        }
+        Text("声の高さ ${"%.2f".format(pitch)}", color = TextSub, fontSize = 12.sp)
+        androidx.compose.material3.Slider(value = pitch, onValueChange = { pitch = it }, valueRange = 0.5f..1.3f,
+            onValueChangeFinished = { prefs.voicePitch = pitch; Jarvis.tts.reloadVoice() })
+        Text("話す速さ ${"%.2f".format(rate)}", color = TextSub, fontSize = 12.sp)
+        androidx.compose.material3.Slider(value = rate, onValueChange = { rate = it }, valueRange = 0.7f..1.6f,
+            onValueChangeFinished = { prefs.voiceRate = rate; Jarvis.tts.reloadVoice() })
+        val scope = rememberCoroutineScope()
+        OutlinedButton(onClick = { scope.launch { Jarvis.tts.speak("こんにちは、ボス。ジャーヴィスです。") } },
+            modifier = Modifier.fillMaxWidth()) { Text("声を試す") }
 
         SectionTitle("権限")
         OutlinedButton(onClick = actions.openAccessibility, modifier = Modifier.fillMaxWidth()) {

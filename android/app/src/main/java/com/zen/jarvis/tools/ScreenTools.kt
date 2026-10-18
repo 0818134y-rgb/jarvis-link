@@ -42,9 +42,13 @@ fun ToolRegistry.registerScreenTools() {
 
     add("list_items", "画面の押せる項目に番号を振って読み上げる(「3番をタップ」で使う)", risk = Risk.REMOTE_BLOCKED) { _ ->
         val s = svc() ?: return@add NEED_ACCESS
-        val items = s.listItems()
+        val items = s.listItems(30)
         if (items.isEmpty()) "押せる項目が見つかりませんでした。"
-        else "${items.size}個あります。" + items.mapIndexed { i, it -> "${i + 1}番、${it.label}" }.joinToString("。") + "。"
+        else {
+            val head = items.take(12).mapIndexed { i, it -> "${i + 1}番、${it.label}" }.joinToString("。") + "。"
+            val rest = if (items.size > 12) "ほかに${items.size - 12}個あります。番号で選べます。" else ""
+            "${items.size}個あります。$head$rest"
+        }
     }
 
     add("tap_item", "list_items で読み上げた番号の項目をタップする", Param("number", "番号", type = "integer"),

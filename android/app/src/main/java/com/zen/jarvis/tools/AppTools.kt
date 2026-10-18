@@ -33,6 +33,34 @@ fun ToolRegistry.registerAppTools(ctx: Context) {
         if (ok) "${site.name}で「$q」を検索しました。" else "${site.name}を開けませんでした。"
     }
 
+    add("app_search", "アプリを開いて、その中で検索する (LINE・設定・メルカリアプリなど、どのアプリでも)",
+        Param("app", "アプリ名"), Param("query", "検索する言葉")) { a ->
+        val app = AppFinder.find(ctx, a.getString("app")) ?: return@add "「${a.getString("app")}」というアプリが見つかりませんでした。"
+        val q = a.getString("query")
+        val svc = JarvisAccessibility.instance
+            ?: return@add "アプリの中を操作するには、設定のユーザー補助で「JARVIS 端末操作」をオンにしてください。"
+        val launch = ctx.packageManager.getLaunchIntentForPackage(app.packageName) ?: return@add "${app.label}は起動できません。"
+        startActivitySafe(ctx, launch)
+        svc.waitForPackage(app.packageName, 5000)
+        delay(900)
+        if (!svc.focusSearchField()) {
+            if (!svc.tapSearchButton()) return@add "${app.label}を開きましたが、検索ボタンが見つかりませんでした。「画面の項目を教えて」で番号から選べます。"
+            delay(900)
+            svc.focusSearchField()
+        }
+        if (!svc.typeText(q)) return@add "${app.label}の検索欄に入力できませんでした。"
+        delay(300)
+        if (!svc.pressEnter()) svc.tapAnyOf(listOf("検索", "Search", "検索する"))
+        "${app.label}で「$q」を検索しました。"
+    }
+
+    add("type_into", "名前やヒントで入力欄を指定して文字を入れる (例: メールアドレスの欄に入力)",
+        Param("field", "入力欄の名前やヒント"), Param("text", "入力する文字"), risk = Risk.REMOTE_BLOCKED) { a ->
+        val svc = JarvisAccessibility.instance ?: return@add "画面操作を使うには、設定のユーザー補助で「JARVIS 端末操作」をオンにしてください。"
+        if (svc.typeInto(a.getString("field"), a.getString("text"))) "「${a.getString("field")}」に入力しました。"
+        else "「${a.getString("field")}」という入力欄が見つかりませんでした。"
+    }
+
     add("calendar_add", "カレンダーに予定を追加する画面を開く(保存はユーザーが押す)",
         Param("title", "予定の名前"), Param("start", "開始日時 yyyy-MM-ddTHH:mm"),
         Param("minutes", "長さ(分)", required = false, type = "integer")) { a ->

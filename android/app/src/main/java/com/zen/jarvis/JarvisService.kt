@@ -21,6 +21,8 @@ import androidx.core.content.ContextCompat
 import com.zen.jarvis.link.LinkServer
 import com.zen.jarvis.link.Protocol
 import com.zen.jarvis.tools.Origin
+import com.zen.jarvis.voice.VoiceLoop
+import com.zen.jarvis.voice.WakeWord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,7 +51,7 @@ class JarvisService : Service() {
         private const val NOTIF_ID = 1
         private const val TAG = "JarvisService"
 
-        val WAKE = Regex("(?:じゃ|ジャ)ー?(?:び|ビ|ヴィ)(?:す|ス)|jarvis", RegexOption.IGNORE_CASE)
+        private const val FOLLOW_UP_MS = 7000L
         val YES = Regex("はい|お願い|いいよ|オッケー|オーケー|ok|実行|どうぞ|やって|イエス", RegexOption.IGNORE_CASE)
         val NO = Regex("いいえ|だめ|ダメ|やめ|キャンセル|ノー|中止|待って")
 
@@ -67,7 +69,6 @@ class JarvisService : Service() {
     private val session = Mutex()
     private var server: LinkServer? = null
     private var listenJob: Job? = null
-    private var continuousJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
@@ -93,6 +94,7 @@ class JarvisService : Service() {
         Jarvis.tools.allowRemoteDangerous = { Jarvis.prefs.allowRemoteDangerous }
         Jarvis.brain.onToolCall = { name, args -> Jarvis.log("tool", "$name $args") }
         scope.launch(Dispatchers.IO) { startLink() }
+        setupVoice()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -113,8 +115,9 @@ class JarvisService : Service() {
 
     override fun onDestroy() {
         running = false
-        continuousJob?.cancel()
+        fallbackJob?.cancel()
         listenJob?.cancel()
+        voice?.release()
         Jarvis.setStatus("停止中")
         val s = server
         server = null
@@ -128,18 +131,78 @@ class JarvisService : Service() {
 
     // ---------- 音声 ----------
 
+    private var voice: VoiceLoop? = null
+    private var fallbackJob: Job? = null
+
+    private fun setupVoice() {
+        val v = VoiceLoop(
+            context = this,
+            extraWakeWords = { Jarvis.prefs.extraWakeWords.split('\n').map { it.trim() }.filter { it.isNotEmpty() } },
+            onHeard = { Jarvis.setHeard(it) },
+            onWake = { if (!session.isLocked) Jarvis.setStatus("聞いています") },
+            onUtterance = { cmd, _ -> onVoice(cmd) },
+        )
+        voice = v
+        scope.launch {
+            Jarvis.setStatus("音声モデル準備中")
+            val ok = v.prepare()
+            if (!ok) Jarvis.log("system", "端末内の音声モデルが見つからないため、システムの音声認識で待ち受けます。")
+            Jarvis.setStatus("待機中")
+            updateContinuous()
+        }
+    }
+
+    /** 呼びかけ(または会話モード中の発話)を受け取った */
+    private fun onVoice(cmd: String) {
+        if (session.isLocked) return
+        scope.launch {
+            session.withLock {
+                voice?.stop()  // 自分の声を聞かないよう、返答が終わるまでマイクを止める
+                var c = cmd
+                if (c.isBlank()) {
+                    Jarvis.tts.speak("はい")
+                    Jarvis.setStatus("聞いています")
+                    c = if (Jarvis.prefs.preciseCommand || voice?.isReady != true) Jarvis.stt.listenOnce() ?: "" else ""
+                    if (c.isBlank() && voice?.isReady == true && !Jarvis.prefs.preciseCommand) {
+                        resumeListening(followUp = true)
+                        return@withLock
+                    }
+                }
+                if (c.isNotBlank()) runCommand(c) else Jarvis.setStatus("待ち受け中")
+                resumeListening(followUp = c.isNotBlank())
+            }
+        }
+    }
+
+    private fun resumeListening(followUp: Boolean) {
+        val v = voice ?: return
+        if (!Jarvis.prefs.continuous || !v.isReady) {
+            Jarvis.setStatus("待機中")
+            updateContinuous()
+            return
+        }
+        v.start()
+        if (followUp) v.openFollowUp(FOLLOW_UP_MS)
+        Jarvis.setStatus(if (followUp) "聞いています" else "待ち受け中")
+        if (followUp) scope.launch {
+            delay(FOLLOW_UP_MS)
+            if (!session.isLocked && Jarvis.status.value == "聞いています") Jarvis.setStatus("待ち受け中")
+        }
+    }
+
+    /** ボタン・通知から話しかける */
     private fun listenSession() {
-        if (listenJob?.isActive == true) return
-        continuousJob?.cancel()  // 常時待ち受け中ならいったん止めてマイクを譲る
+        if (listenJob?.isActive == true || session.isLocked) return
         listenJob = scope.launch {
             session.withLock {
+                voice?.stop()
+                fallbackJob?.cancel()
                 Jarvis.tts.stop()
-                Jarvis.tts.beep()
                 Jarvis.setStatus("聞いています")
                 val text = Jarvis.stt.listenOnce()
                 if (text != null) runCommand(text) else Jarvis.setStatus("待機中")
+                resumeListening(followUp = text != null)
             }
-            updateContinuous()
         }
     }
 
@@ -154,31 +217,41 @@ class JarvisService : Service() {
     }
 
     private fun updateContinuous() {
+        val v = voice
         if (Jarvis.prefs.continuous) {
-            if (continuousJob?.isActive != true && listenJob?.isActive != true) {
-                continuousJob = scope.launch { continuousLoop() }
+            if (v != null && v.isReady) {
+                fallbackJob?.cancel()
+                if (!v.running && !session.isLocked) {
+                    v.start()
+                    Jarvis.setStatus("待ち受け中")
+                }
+            } else if (fallbackJob?.isActive != true) {
+                fallbackJob = scope.launch { fallbackLoop() }
             }
         } else {
-            continuousJob?.cancel()
+            v?.stop()
+            fallbackJob?.cancel()
+            if (!session.isLocked) Jarvis.setStatus("待機中")
         }
     }
 
-    /** 「ジャーヴィス、〜」を待ち続けるモード。端末の認識エンジンによっては開始音が鳴る。 */
-    private suspend fun continuousLoop() {
-        while (scope.isActive && Jarvis.prefs.continuous) {
+    /** 端末内モデルが使えない時の待ち受け (システムの音声認識を繰り返す。開始音は消音)。 */
+    private suspend fun fallbackLoop() {
+        while (scope.isActive && Jarvis.prefs.continuous && voice?.isReady != true) {
             val heard = session.withLock {
                 Jarvis.setStatus("待ち受け中")
                 Jarvis.stt.listenOnce()
             }
             if (heard == null) {
-                delay(300)
+                delay(200)
                 continue
             }
-            val m = WAKE.find(heard) ?: continue
-            var cmd = heard.substring(m.range.last + 1).trim(' ', '、', '。', ',', '!', '！')
+            Jarvis.setHeard(heard)
+            val hit = WakeWord.detect(heard, Jarvis.prefs.extraWakeWords.split('\n').filter { it.isNotBlank() }) ?: continue
             session.withLock {
+                var cmd = hit.command
                 if (cmd.isEmpty()) {
-                    Jarvis.tts.speak("はい、ボス。")
+                    Jarvis.tts.speak("はい")
                     cmd = Jarvis.stt.listenOnce() ?: ""
                 }
                 if (cmd.isNotEmpty()) runCommand(cmd) else Jarvis.setStatus("待ち受け中")

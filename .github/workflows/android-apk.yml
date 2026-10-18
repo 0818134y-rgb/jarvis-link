@@ -39,6 +39,15 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
+      - name: 呼びかけ待ち受け用の日本語音声モデルを同梱
+        run: |
+          curl -sSL -o vosk-ja.zip https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip
+          unzip -q vosk-ja.zip
+          mkdir -p android/app/src/main/assets/vosk-ja
+          cp -r vosk-model-small-ja-0.22/* android/app/src/main/assets/vosk-ja/
+          echo "small-ja-0.22" > android/app/src/main/assets/vosk-ja/version.txt
+          find android/app/src/main/assets/vosk-ja -maxdepth 2 | head -30
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"

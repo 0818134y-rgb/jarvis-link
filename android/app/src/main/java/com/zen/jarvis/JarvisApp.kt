@@ -56,6 +56,13 @@ object Jarvis {
     private val _status = MutableStateFlow("待機中")
     val status: StateFlow<String> = _status.asStateFlow()
 
+    /** 待ち受け中に最後に聞こえた言葉 (呼びかけの調整用) */
+    private val _heard = MutableStateFlow("")
+    val heard: StateFlow<String> = _heard.asStateFlow()
+    fun setHeard(s: String) {
+        _heard.value = s
+    }
+
     private val _log = MutableStateFlow<List<LogEntry>>(emptyList())
     val log: StateFlow<List<LogEntry>> = _log.asStateFlow()
 
@@ -66,7 +73,7 @@ object Jarvis {
         initialized = true
         app = context.applicationContext
         prefs = Prefs(app)
-        tts = SpeechOutput(app)
+        tts = SpeechOutput(app, prefs)
         stt = SpeechInput(app)
         client = LinkClient(prefs)
         directory = DeviceDirectory(prefs, client)

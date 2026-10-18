@@ -2,169 +2,169 @@
  {
   "text": "ライトつけて",
   "intent": "flashlight",
-  "prob": 0.9969,
+  "prob": 0.9953,
   "normalized": "らいとつけて"
  },
  {
   "text": "ジャーヴィス、今何時？",
   "intent": "time",
-  "prob": 0.9878,
+  "prob": 0.9931,
   "normalized": "今何時"
  },
  {
   "text": "明日の大阪の天気は",
   "intent": "weather",
-  "prob": 0.9977,
+  "prob": 0.9963,
   "normalized": "明日の大阪の天気は"
  },
  {
   "text": "富士山って何",
   "intent": "wiki",
-  "prob": 0.9728,
+  "prob": 0.9863,
   "normalized": "富士山って何"
  },
  {
   "text": "3たす5は",
   "intent": "calc",
-  "prob": 0.966,
+  "prob": 0.9791,
   "normalized": "3たす5は"
  },
  {
   "text": "聞こえる",
   "intent": "hearing_test",
-  "prob": 0.9551,
+  "prob": 0.967,
   "normalized": "聞こえる"
  },
  {
   "text": "今何ができんの",
   "intent": "capabilities",
-  "prob": 0.9047,
+  "prob": 0.7719,
   "normalized": "今何ができんの"
  },
  {
   "text": "5分のタイマー",
   "intent": "timer",
-  "prob": 0.9989,
+  "prob": 0.9978,
   "normalized": "5分のたいま"
  },
  {
   "text": "YouTubeを開いて",
   "intent": "open_app",
-  "prob": 0.9071,
+  "prob": 0.9894,
   "normalized": "youtubeを開いて"
  },
  {
   "text": "ニュースを教えて",
   "intent": "news",
-  "prob": 0.9284,
+  "prob": 0.7578,
   "normalized": "にゅすを教えて"
  },
  {
   "text": "疲れた",
   "intent": "tired",
-  "prob": 0.9736,
+  "prob": 0.9556,
   "normalized": "疲れた"
  },
  {
   "text": "1ドルは何円",
   "intent": "currency",
-  "prob": 0.9959,
+  "prob": 0.993,
   "normalized": "1どるは何円"
  },
  {
   "text": "クリスマスまであと何日",
   "intent": "days_until",
-  "prob": 0.9564,
+  "prob": 0.9767,
   "normalized": "くりすますまであと何日"
  },
  {
   "text": "ありがとう",
   "intent": "thanks",
-  "prob": 0.9569,
+  "prob": 0.9655,
   "normalized": "ありがとう"
  },
  {
   "text": "東京駅までナビして",
   "intent": "navigate",
-  "prob": 0.9812,
+  "prob": 0.9885,
   "normalized": "東京駅までなびして"
  },
  {
   "text": "スクショ撮って",
   "intent": "screenshot",
-  "prob": 0.9876,
+  "prob": 0.8663,
   "normalized": "すくしょ撮って"
  },
  {
   "text": "私の名前はゼンです",
   "intent": "user_name_tell",
-  "prob": 0.9666,
+  "prob": 0.9696,
   "normalized": "私の名前はぜんです"
  },
  {
   "text": "メモを読んで",
   "intent": "recall_notes",
-  "prob": 0.969,
+  "prob": 0.9681,
   "normalized": "めもを読んで"
  },
  {
   "text": "量子力学について教えて",
   "intent": "wiki",
-  "prob": 0.8991,
+  "prob": 0.9435,
   "normalized": "量子力学について教えて"
  },
  {
   "text": "天気どう？",
   "intent": "weather",
-  "prob": 0.9544,
+  "prob": 0.9528,
   "normalized": "天気どう"
  },
  {
   "text": "新しいタブを開いて",
   "intent": "browser_control",
-  "prob": 0.9764,
+  "prob": 0.9564,
   "normalized": "新しいたぶを開いて"
  },
  {
   "text": "3番をタップして",
   "intent": "tap_item",
-  "prob": 0.989,
+  "prob": 0.9917,
   "normalized": "3番をたっぷして"
  },
  {
   "text": "このページをパソコンで開いて",
   "intent": "share_page",
-  "prob": 0.9723,
+  "prob": 0.9555,
   "normalized": "このぺじをぱそこんで開いて"
  },
  {
   "text": "スマホを探して",
   "intent": "find_phone",
-  "prob": 0.9602,
+  "prob": 0.917,
   "normalized": "すまほを探して"
  },
  {
   "text": "Amazonでイヤホンを探して",
   "intent": "browser_search",
-  "prob": 0.9178,
+  "prob": 0.9897,
   "normalized": "amazonでいやほんを探して"
  },
  {
   "text": "左にスワイプ",
   "intent": "swipe",
-  "prob": 0.9893,
+  "prob": 0.9881,
   "normalized": "左にすわいぷ"
  },
  {
   "text": "保存して",
   "intent": "keys",
-  "prob": 0.9082,
+  "prob": 0.9395,
   "normalized": "保存して"
  },
  {
   "text": "見積書というファイルを探して",
   "intent": "file_search",
-  "prob": 0.9925,
+  "prob": 0.992,
   "normalized": "見積書というふぁいるを探して"
  }
 ]

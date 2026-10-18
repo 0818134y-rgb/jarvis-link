@@ -264,7 +264,17 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
             "browser_search" -> {
                 val recent = lastOpened?.takeIf { System.currentTimeMillis() - lastOpenedAt < 60_000 }
                 val site = com.zen.jarvis.tools.Sites.find(text) ?: recent?.let { com.zen.jarvis.tools.Sites.find(it) }
-                if (site != null) {
+                // 「LINEで田中を検索」: サイトでなくアプリ名なら、アプリを開いて中で検索
+                val appQuery = Regex("^(?:ジャーヴィス[、,\\s]*)?(.+?)(?:アプリ)?で(.+?)(?:を|って)?(?:検索|探して|調べて|さがして)").find(text)
+                val appEntry = appQuery?.takeIf { !Regex("^(ネット|ブラウザ|ウェブ|web|インターネット|画面|ここ)$", RegexOption.IGNORE_CASE).matches(it.groupValues[1]) }
+                    ?.let { com.zen.jarvis.tools.AppFinder.find(context, it.groupValues[1]) }
+                    ?: if (site == null) recent?.let { com.zen.jarvis.tools.AppFinder.find(context, it) } else null
+                if (site == null && appEntry != null) {
+                    val q = appQuery?.groupValues?.get(2)
+                        ?: (ruleArgs(text, "browser_search")?.optString("query") ?: "")
+                    if (q.isBlank()) ask("browser_search", "${appEntry.label}で何を検索しますか？")
+                    else tool("app_search", obj("app" to appEntry.label, "query" to q), origin)
+                } else if (site != null) {
                     val q = com.zen.jarvis.tools.Sites.queryOf(text, site)
                     if (q.isBlank()) tool("open_url", obj("url" to site.home), origin)
                     else tool("site_search", obj("site" to site.name, "query" to q), origin)
@@ -353,9 +363,14 @@ class Brain(private val context: Context, private val tools: ToolRegistry) {
             "tap_text" -> ruleArgs(text, "tap_text")?.let { tool("tap_text", it, origin) }
                 ?: ask("tap_text", "どれをタップしますか？")
             "type_text" -> {
+                val field = Regex("^(?:ジャーヴィス[、,\\s]*)?(.+?)(?:の)?(?:欄|入力欄|フィールド|ボックス)に").find(text)?.groupValues?.get(1)
                 val t = Regex("[「『](.+?)[」』]").find(text)?.groupValues?.get(1)
                     ?: Regex("^(?:.+?欄に)?(.+?)(?:と|って)(?:入力|打って|書いて|入れて)").find(text)?.groupValues?.get(1)
-                if (t.isNullOrBlank()) ask("type_text", "何と入力しますか？") else tool("type_text", obj("text" to t), origin)
+                when {
+                    t.isNullOrBlank() -> ask("type_text", "何と入力しますか？")
+                    field != null && !Regex("検索").containsMatchIn(field) -> tool("type_into", obj("field" to field, "text" to t), origin)
+                    else -> tool("type_text", obj("text" to t, "enter" to Regex("検索|して検索|確定").containsMatchIn(text.substringAfter(t))), origin)
+                }
             }
 
             // ---------------- 情報 ----------------

@@ -18,7 +18,11 @@ from .config import load_config
 from .link import Link, PLATFORM
 from .tools import load_all
 
-WAKE_RE = re.compile(r"(?:じゃ|ジャ|ヂャ)ー?(?:び|ビ|ヴィ|ヴぃ|ヴイ|ぶい)(?:す|ス|ズ)|jarvis|ジャーベス", re.IGNORECASE)
+# Whisper は「ジャーヴィス」を色々な書き方で返すので、音の近い形をまとめて受け付ける
+WAKE_RE = re.compile(
+    r"(?:じゃ|ジャ|ヂャ|ぢゃ|チャ|ちゃ)[ーあア]?\s*(?:び|ビ|ヴィ|ヴぃ|ヴイ|ぶい|ブイ|ぴ|ピ|べ|ベ|ヴ|ウィ)\s*(?:す|ス|ズ|ず|しゅ|シュ)"
+    r"|jarvis|jervis|ジャーベス|ジャビス|ジャヴィス",
+    re.IGNORECASE)
 YES_RE = re.compile(r"はい|お願い|おねがい|いいよ|オッケー|オーケー|ok|okay|実行|どうぞ|やって|イエス|yes", re.IGNORECASE)
 NO_RE = re.compile(r"いいえ|だめ|ダメ|やめ|キャンセル|ノー|中止|待って", re.IGNORECASE)
 BYE_RE = re.compile(r"^(?:ありがとう|以上|もういい|おしまい|終わり|大丈夫)[。!！]*$")
@@ -134,10 +138,7 @@ def main() -> None:
     if hotkey:
         try:
             import keyboard
-            def on_hotkey():
-                forced.set()
-                threading.Thread(target=speaker.beep, daemon=True).start()
-            keyboard.add_hotkey(hotkey, on_hotkey)
+            keyboard.add_hotkey(hotkey, forced.set)
             print(f"[asr] hotkey {hotkey}: press then speak without wake word")
         except Exception as e:  # noqa: BLE001
             print(f"[asr] hotkey unavailable: {e}")
@@ -155,7 +156,7 @@ def main() -> None:
             was_forced = forced.is_set()
             forced.clear()
             print(f"YOU> {text}")
-            in_follow = listener.last_start < follow_until
+            in_follow = listener.last_start < follow_until or brain.pending is not None or brain.confirm_action is not None
             m = WAKE_RE.search(text)
             if m:
                 cmd = text[m.end():].strip(" 、。,.!！?？")
@@ -168,7 +169,7 @@ def main() -> None:
             else:
                 continue
             if not cmd:
-                speaker.beep()
+                speaker.say("はい")
                 cmd = listener.listen(timeout=8)
                 print(f"YOU> {cmd}")
                 if not cmd:

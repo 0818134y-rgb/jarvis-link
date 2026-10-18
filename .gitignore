@@ -11,3 +11,4 @@ android/local.properties
 android/.idea/
 *.iml
 pc/memory.json
+android/app/src/main/assets/vosk-ja/

@@ -101,21 +101,94 @@ def tap_item(number: int) -> str:
     return f"{number}番、{name}をクリックしました。"
 
 
+def _norm(s: str) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFKC", s).lower()
+    t = "".join(chr(ord(c) - 0x60) if "\u30a1" <= c <= "\u30f6" else c for c in t)
+    return "".join(c for c in t if not c.isspace() and c not in "ー・")
+
+
 def _find_by_name(target: str):
-    key = target.replace(" ", "").lower()
-    best = None
+    """名前のゆれ(カタカナ/ひらがな・全角/半角・多少の言い間違い)に強い検索。"""
+    import difflib
+    key = _norm(target).removesuffix("ぼたん")
+    if not key:
+        return None
+    best, best_score = None, 0.0
     for c in _controls():
         try:
-            name = (c.window_text() or "").replace(" ", "").lower()
+            name = _norm(c.window_text() or "")
+            ctype = c.element_info.control_type
         except Exception:  # noqa: BLE001
             continue
         if not name:
             continue
         if name == key:
-            return c
-        if key in name and best is None:
-            best = c
+            score = 100.0
+        elif name.startswith(key):
+            score = 80 + 10 * len(key) / len(name)
+        elif key in name:
+            score = 60 + 20 * len(key) / len(name)
+        elif len(name) >= 2 and name in key:
+            score = 40 + 20 * len(name) / len(key)
+        else:
+            r = difflib.SequenceMatcher(None, name, key).ratio()
+            score = r * 50 if r >= 0.6 else 0
+        if score and ctype in CLICKABLE_TYPES:
+            score += 10
+        if score > best_score:
+            best, best_score = c, score
     return best
+
+
+_SEARCH_WORDS = ("検索", "search", "さがす", "探す", "サーチ", "find")
+
+
+@registry.add("app_search", "アプリを開いて(または前面に出して)、その中で検索する", {
+    "app": {"type": "string"}, "query": {"type": "string"},
+}, ["app", "query"], risk=REMOTE_BLOCKED)
+def app_search(app: str, query: str) -> str:
+    import pyautogui
+    from .apps import _windows_matching, open_app
+    wins = _windows_matching(app)
+    if wins:
+        try:
+            if wins[0].isMinimized:
+                wins[0].restore()
+            wins[0].activate()
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        out = open_app(app)
+        if "見つかりません" in out:
+            return out
+        for _ in range(20):
+            time.sleep(0.5)
+            if _windows_matching(app):
+                break
+    time.sleep(1.0)
+    box = None
+    for c in _controls():
+        try:
+            name = (c.window_text() or "").lower()
+            ctype = c.element_info.control_type
+        except Exception:  # noqa: BLE001
+            continue
+        if ctype in ("Edit", "ComboBox") and any(w in name for w in _SEARCH_WORDS):
+            box = c
+            break
+        if box is None and ctype in ("Button", "MenuItem") and any(w in name for w in _SEARCH_WORDS):
+            box = c
+    if box is not None:
+        try:
+            box.click_input()
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        pyautogui.hotkey("ctrl", "f")  # 多くのアプリの検索ショートカット
+    time.sleep(0.5)
+    type_text(query, enter=True)
+    return f"{app}で「{query}」を検索しました。"
 
 
 @registry.add("click_on", "画面上のボタンやリンクを名前でクリックする", {

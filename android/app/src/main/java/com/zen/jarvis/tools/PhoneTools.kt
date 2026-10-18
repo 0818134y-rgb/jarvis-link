@@ -31,7 +31,10 @@ fun ToolRegistry.registerPhoneTools(ctx: Context) {
         val app = AppFinder.find(ctx, name) ?: return@add "「$name」というアプリが見つかりませんでした。"
         val intent = ctx.packageManager.getLaunchIntentForPackage(app.packageName)
             ?: return@add "${app.label}は起動できません。"
-        if (startActivitySafe(ctx, intent)) "${app.label}を開きました。" else "${app.label}を開けませんでした。"
+        if (!startActivitySafe(ctx, intent)) return@add "${app.label}を開けませんでした。"
+        // 画面が切り替わるまで待つ (続けて操作する時に空振りしないように)
+        com.zen.jarvis.access.JarvisAccessibility.instance?.waitForPackage(app.packageName, 4000)
+        "${app.label}を開きました。"
     }
 
     add("flashlight", "ライト(懐中電灯)をつける/消す", Param("on", "true でつける、false で消す", type = "boolean")) { a ->

@@ -36,9 +36,9 @@ class Prefs(context: Context) {
     val peerList: List<String>
         get() = peers.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }
 
-    /** 常時ウェイクワード待ち受け */
+    /** 常時ウェイクワード待ち受け (既定オン: ボタンを押さずに「ジャーヴィス」で反応) */
     var continuous: Boolean
-        get() = sp.getBoolean("continuous", false)
+        get() = sp.getBoolean("continuous", true)
         set(v) = sp.edit().putBoolean("continuous", v).apply()
 
     var allowRemoteDangerous: Boolean
@@ -49,6 +49,29 @@ class Prefs(context: Context) {
     var forwardNotifications: Boolean
         get() = sp.getBoolean("forwardNotifications", false)
         set(v) = sp.edit().putBoolean("forwardNotifications", v).apply()
+
+    /** 追加の呼びかけ語 (改行区切り)。聞こえ方が独特な時に足す */
+    var extraWakeWords: String
+        get() = sp.getString("extraWakeWords", "") ?: ""
+        set(v) = sp.edit().putString("extraWakeWords", v).apply()
+
+    /** 呼びかけの後の指示を高精度認識(端末の音声認識)で聞き直す */
+    var preciseCommand: Boolean
+        get() = sp.getBoolean("preciseCommand", true)
+        set(v) = sp.edit().putBoolean("preciseCommand", v).apply()
+
+    /** 読み上げの声 (空なら男性の声を自動選択) */
+    var voiceName: String
+        get() = sp.getString("voiceName", "") ?: ""
+        set(v) = sp.edit().putString("voiceName", v).apply()
+
+    var voicePitch: Float
+        get() = sp.getFloat("voicePitch", 0.85f)
+        set(v) = sp.edit().putFloat("voicePitch", v).apply()
+
+    var voiceRate: Float
+        get() = sp.getFloat("voiceRate", 1.1f)
+        set(v) = sp.edit().putFloat("voiceRate", v).apply()
 
     var discovery: Boolean
         get() = sp.getBoolean("discovery", true)
