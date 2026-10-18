@@ -34,7 +34,7 @@ fun ToolRegistry.registerPhoneTools(ctx: Context) {
         if (startActivitySafe(ctx, intent)) "${app.label}を開きました。" else "${app.label}を開けませんでした。"
     }
 
-    add("flashlight", "ライト(懐中電灯)をつける/消す", Param("on", "true でつける、false で消す")) { a ->
+    add("flashlight", "ライト(懐中電灯)をつける/消す", Param("on", "true でつける、false で消す", type = "boolean")) { a ->
         val on = a.optBoolean("on", true)
         val cm = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val id = cm.cameraIdList.firstOrNull {
@@ -46,7 +46,7 @@ fun ToolRegistry.registerPhoneTools(ctx: Context) {
 
     add("set_volume", "メディア音量を変える",
         Param("action", "up / down / mute / unmute / set のいずれか"),
-        Param("level", "action=set の時の音量 0〜100", required = false)) { a ->
+        Param("level", "action=set の時の音量 0〜100", required = false, type = "integer")) { a ->
         val stream = AudioManager.STREAM_MUSIC
         when (a.optString("action", "up")) {
             "up" -> repeat(2) { audio.adjustStreamVolume(stream, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI) }
@@ -78,7 +78,7 @@ fun ToolRegistry.registerPhoneTools(ctx: Context) {
     }
 
     add("set_timer", "タイマーをセットする",
-        Param("minutes", "分", required = false), Param("seconds", "秒", required = false),
+        Param("minutes", "分", required = false, type = "integer"), Param("seconds", "秒", required = false, type = "integer"),
         Param("label", "名前", required = false)) { a ->
         val total = a.optInt("minutes", 0) * 60 + a.optInt("seconds", 0)
         if (total <= 0) return@add "時間がわかりませんでした。"
@@ -90,7 +90,7 @@ fun ToolRegistry.registerPhoneTools(ctx: Context) {
     }
 
     add("set_alarm", "アラームをセットする",
-        Param("hour", "時 (0〜23)"), Param("minute", "分", required = false),
+        Param("hour", "時 (0〜23)", type = "integer"), Param("minute", "分", required = false, type = "integer"),
         Param("label", "名前", required = false)) { a ->
         val h = a.getInt("hour").coerceIn(0, 23)
         val m = a.optInt("minute", 0).coerceIn(0, 59)
@@ -109,7 +109,7 @@ fun ToolRegistry.registerPhoneTools(ctx: Context) {
         "開きました。"
     }
 
-    add("web_search", "Web検索する", Param("query", "検索語"),
+    add("browser_search", "ブラウザやYouTube・地図アプリで検索結果を画面に開く", Param("query", "検索語"),
         Param("site", "google / youtube / map のいずれか", required = false)) { a ->
         val q = a.getString("query")
         val ok = when (a.optString("site", "google")) {

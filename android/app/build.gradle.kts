@@ -12,10 +12,21 @@ android {
         applicationId = "com.zen.jarvis"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         // 現行のAndroidスマホ(64bit ARM)だけに絞ってAPKを小さくする
         ndk { abiFilters += "arm64-v8a" }
+    }
+
+    // CIのたびに署名が変わると上書きインストールできないので、署名鍵をリポジトリで固定する
+    // (個人利用のデバッグ用鍵。ストア公開時は別の鍵を使うこと)
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("jarvis-debug.keystore")
+            storePassword = "jarvisdebug"
+            keyAlias = "jarvis"
+            keyPassword = "jarvisdebug"
+        }
     }
 
     buildTypes {

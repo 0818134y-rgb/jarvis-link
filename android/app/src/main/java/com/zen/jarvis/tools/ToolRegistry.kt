@@ -6,7 +6,8 @@ import org.json.JSONObject
 /** リスク区分 (protocol/PROTOCOL.md と共通)。 */
 enum class Risk { SAFE, REMOTE_BLOCKED, CONFIRM }
 
-data class Param(val name: String, val desc: String, val required: Boolean = true)
+/** type は JSON Schema の型 ("string" / "integer" / "boolean")。 */
+data class Param(val name: String, val desc: String, val required: Boolean = true, val type: String = "string")
 
 class Tool(
     val name: String,
@@ -56,6 +57,26 @@ class ToolRegistry {
                 .put("risk", it.risk.name.lowercase()))
         }
         return arr.toString()
+    }
+
+    /** Claude API の tools 配列 (input_schema 付き)。 */
+    fun claudeTools(): org.json.JSONArray {
+        val arr = org.json.JSONArray()
+        tools.values.forEach { t ->
+            val props = JSONObject()
+            val required = org.json.JSONArray()
+            t.params.forEach { p ->
+                props.put(p.name, JSONObject().put("type", p.type).put("description", p.desc))
+                if (p.required) required.put(p.name)
+            }
+            arr.put(
+                JSONObject()
+                    .put("name", t.name)
+                    .put("description", t.description)
+                    .put("input_schema", JSONObject().put("type", "object").put("properties", props).put("required", required))
+            )
+        }
+        return arr
     }
 
     suspend fun call(name: String, args: JSONObject, origin: Origin): String {

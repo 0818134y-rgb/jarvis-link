@@ -24,7 +24,7 @@ fun ToolRegistry.registerScreenTools() {
     }
 
     add("type_text", "今選択中の入力欄に文字を入力する",
-        Param("text", "入力する文字"), Param("enter", "true なら入力後に確定(検索/送信)", required = false),
+        Param("text", "入力する文字"), Param("enter", "true なら入力後に確定(検索/送信)", required = false, type = "boolean"),
         risk = Risk.REMOTE_BLOCKED) { a ->
         val s = svc() ?: return@add NEED_ACCESS
         if (!s.typeText(a.getString("text"))) return@add "入力欄が見つかりませんでした。"

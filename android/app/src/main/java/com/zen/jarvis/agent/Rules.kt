@@ -106,10 +106,10 @@ object Rules {
 
         // ---- 検索 ----
         Regex("^(?:ユーチューブ|youtube)で(.+?)を?(?:検索|探して|調べて|再生|見せて)", IC).find(s)?.let {
-            return Match("web_search", obj("query" to it.groupValues[1], "site" to "youtube"))
+            return Match("browser_search", obj("query" to it.groupValues[1], "site" to "youtube"))
         }
         Regex("^(.+?)(?:を|で|って|について)?(?:検索して|検索|調べて|ググって)$").find(s)?.let {
-            return Match("web_search", obj("query" to it.groupValues[1]))
+            return Match("browser_search", obj("query" to it.groupValues[1]))
         }
 
         // ---- アプリ起動 ----

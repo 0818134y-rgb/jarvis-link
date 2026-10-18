@@ -49,6 +49,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("allowRemoteDangerous", false)
         set(v) = sp.edit().putBoolean("allowRemoteDangerous", v).apply()
 
+    /** Claude API キー (console で発行)。空なら端末内ルール/LLMで動く。 */
+    var claudeApiKey: String
+        get() = sp.getString("claudeApiKey", "") ?: ""
+        set(v) = sp.edit().putString("claudeApiKey", v.trim()).apply()
+
+    var claudeModel: String
+        get() = sp.getString("claudeModel", "claude-sonnet-5-5") ?: "claude-sonnet-5-5"
+        set(v) = sp.edit().putString("claudeModel", v).apply()
+
     var discovery: Boolean
         get() = sp.getBoolean("discovery", true)
         set(v) = sp.edit().putBoolean("discovery", v).apply()

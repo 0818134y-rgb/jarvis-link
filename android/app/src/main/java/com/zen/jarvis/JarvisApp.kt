@@ -3,6 +3,7 @@ package com.zen.jarvis
 import android.app.Application
 import android.content.Context
 import com.zen.jarvis.agent.Agent
+import com.zen.jarvis.agent.ClaudeClient
 import com.zen.jarvis.agent.LocalLlm
 import com.zen.jarvis.link.DeviceDirectory
 import com.zen.jarvis.link.LinkClient
@@ -44,6 +45,8 @@ object Jarvis {
         private set
     lateinit var agent: Agent
         private set
+    lateinit var claude: ClaudeClient
+        private set
     lateinit var directory: DeviceDirectory
         private set
     lateinit var client: LinkClient
@@ -78,7 +81,8 @@ object Jarvis {
             registerScreenTools()
             registerRemoteTools(app)
         }
-        agent = Agent(tools, llm)
+        claude = ClaudeClient(prefs)
+        agent = Agent(tools, llm, claude)
 
         val model = prefs.modelPath
         if (model.isNotBlank()) {

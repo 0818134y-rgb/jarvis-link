@@ -31,7 +31,7 @@ class RulesTest {
     @Test fun apps() {
         assertEquals("カメラ", Rules.match("カメラアプリを開いて")!!.args.getString("name"))
         assertEquals("media_control", tool("一時停止"))
-        assertEquals("web_search", tool("ユーチューブで猫動画を検索"))
+        assertEquals("browser_search", tool("ユーチューブで猫動画を検索"))
     }
 
     @Test fun freeTalkGoesToLlm() {
